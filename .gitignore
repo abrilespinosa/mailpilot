@@ -1,0 +1,18 @@
+# Secrets - NUNCA subir esto a GitHub
+credentials/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Entorno
+.env
+
+# Docker
+*.log
+
+# macOS
+.DS_Store
