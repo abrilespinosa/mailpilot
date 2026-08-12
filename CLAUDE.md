@@ -71,6 +71,11 @@ Reglas de trabajo:
 
 - **Email**: `gmail_message_id` (único, clave de idempotencia), `gmail_thread_id`, `subject`,
   `sender`, `snippet`, `received_at`, `raw_labels` (JSON), `created_at`.
+- **Categorías** (`category` en Classification y ActionProposal): enum cerrado de siete valores
+  — `personal`, `trabajo`, `compras`, `banco`, `avisos`, `promociones`, `otros`. Definiciones,
+  reglas de desempate y justificación en `docs/decisions/001-categorias-de-clasificacion.md`.
+  No confundir con las etiquetas que la usuaria ya tiene en Gmail: son mundos separados y
+  `raw_labels` es solo una copia informativa.
 - **Classification**: FK a Email, `category`, `confidence`, `reasoning`, `model_used`,
   `created_at`. Relación 1-a-muchos con Email a propósito (histórico de reclasificaciones,
   útil para evaluación de modelos en fase futura).
@@ -159,7 +164,8 @@ mailpilot/
 │   └── auth.py          # gestión de credenciales OAuth (único módulo que toca credentials/)
 ├── scripts/              # scripts de prueba manual, no parte del producto
 ├── credentials/           # NUNCA versionar (gitignored y verificado) — client_secret.json, token.json
-├── docs/                  # architecture.md, threat-model.md, decisions/ (ADRs) — pendiente de crear
+├── docs/decisions/        # ADRs. 001 = categorías de clasificación
+│                          # (architecture.md y threat-model.md, pendientes)
 ├── venv/                  # entorno virtual local (gitignored)
 ├── .gitignore
 ├── requirements.txt
