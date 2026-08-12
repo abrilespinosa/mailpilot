@@ -174,6 +174,14 @@ mailpilot/
 
 ## Convenciones de commits / ADRs
 
+Commits — reglas estrictas:
+- **En inglés**, siempre (el resto de la documentación del proyecto va en español; los
+  commits no).
+- **Conventional Commits**: `tipo(ámbito): descripción en imperativo y minúscula`.
+  Tipos habituales: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
+- **NUNCA añadir trailers de coautoría de Claude ni de ninguna herramienta de IA.** El
+  historial es de la usuaria.
+
 Cuando se tome una decisión arquitectónica significativa, documentarla en
 `docs/decisions/NNN-titulo.md` como ADR breve (contexto, decisión, alternativas
 consideradas, consecuencias).
