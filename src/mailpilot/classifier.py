@@ -50,10 +50,18 @@ class ClassificationResult(BaseModel):
 
 # Versión del prompt. Se guarda en los resultados de evaluación para poder
 # comparar mediciones: sin esto, un número suelto no dice contra qué se midió.
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 
 # Las definiciones salen del ADR 001. Si cambian allí, hay que cambiarlas
 # aquí: son la especificación que lee el modelo.
+#
+# v5, tras la primera medición LIMPIA (test2, 73,8%):
+# - "trabajo" estaba aprendido como "portal de empleo -> trabajo" en vez de
+#   "te ofrecen trabajo pagado -> trabajo". Seis fallos eran ofertas de una
+#   agencia de casting leídas como publicidad. Fallo de generalización puro.
+# - Los reenvíos se clasifican por contenido, no por quién reenvía (criterio
+#   de la usuaria). La regla 0 los arrastraba a "personal".
+# - Reacciones a tus publicaciones y estados de solicitud, a "avisos".
 #
 # v4: regla 0. El v3 hundió "personal" a 0/5 mandándolos todos a "otros":
 # la regla 5 decía "actividad de tus contactos -> otros", pensada para el
@@ -82,8 +90,10 @@ categoría a cada correo.
 CATEGORÍAS:
 - personal: una persona real escribiéndote directamente, aunque llegue a
   través de un servicio (alguien que comparte contigo una carpeta, por ejemplo)
-- trabajo: empleo y candidaturas. Vacantes, alertas de portales de empleo,
-  inscripciones a puestos, prácticas y proyectos profesionales
+- trabajo: CUALQUIER oferta de trabajo remunerado o gestión de tu empleo. Da
+  igual quién lo mande: un portal de empleo, una agencia, o una empresa
+  escribiéndote directamente. Vacantes, castings, eventos pagados,
+  colaboraciones retribuidas, inscripciones a puestos, prácticas
 - compras: algo que la usuaria compró o contrató. Confirmaciones de pedido,
   entradas, tickets, comprobantes de pago, envíos, devoluciones, y encuestas
   sobre una compra concreta
@@ -101,14 +111,18 @@ CATEGORÍAS:
   no encaje con claridad
 
 REGLAS, EN ORDEN DE PRIORIDAD:
-0. Si detrás del correo hay una PERSONA CONCRETA con nombre y apellido que ha
-   hecho algo dirigido a ti (compartir un documento, invitarte, escribirte),
-   es "personal". Da igual que lo entregue un servicio: "Lucía Espinosa via
-   Notion", "Mónica Tortuero (vía Google Drive)" son personas, no servicios.
-   Un remitente que es una marca o una plataforma NO cuenta.
-1. Si trata de empleo (una vacante, una alerta de un portal de empleo, una
-   candidatura), es "trabajo" AUNQUE use la palabra "ofertas". En español
-   "ofertas" significa tanto descuentos como vacantes: aquí manda el contexto.
+0. Si una PERSONA CONCRETA con nombre y apellido ha hecho algo DIRIGIDO A TI
+   —compartir un documento contigo, invitarte, escribirte— es "personal". Da
+   igual que lo entregue un servicio: "Lucía Espinosa via Notion", "Mónica
+   Tortuero (vía Google Drive)" son personas, no plataformas. Los correos que
+   la usuaria se envía a sí misma también son "personal".
+   EXCEPCIÓN: si esa persona te REENVÍA un correo de otro, clasifícalo por su
+   CONTENIDO, no por quién lo reenvía. Reenviar no es escribirte.
+1. Si te ofrecen TRABAJO REMUNERADO o es una gestión de tu empleo, es
+   "trabajo". No importa el remitente: un portal, una agencia de casting, o
+   una empresa directamente. Vale AUNQUE use la palabra "ofertas" (en español
+   significa tanto descuentos como vacantes) y AUNQUE hable de un "evento":
+   si te pagan por ir, es trabajo, no publicidad.
 2. Si es transaccional o sobre tu cuenta (código, contraseña, verificación,
    seguridad, alta, términos de uso), es "avisos" AUNQUE lo envíe una marca
    comercial.
@@ -121,8 +135,9 @@ REGLAS, EN ORDEN DE PRIORIDAD:
    "otros". Si te habla de TU CUENTA (acceso, seguridad, configuración) es
    "avisos". El mismo remitente manda las dos cosas. Esta regla NO se
    aplica cuando detrás hay una persona concreta: eso es la regla 0.
-6. Una notificación de una aplicación sobre tu actividad dentro de ella
-   (menciones, logros, insignias) es "avisos", no "otros".
+6. Una notificación de una plataforma sobre tu actividad dentro de ella es
+   "avisos", NUNCA "otros": menciones, logros, insignias, reacciones a lo que
+   publicas, y el estado de una solicitud o registro que hiciste.
 7. Publicidad sin relación con una compra concreta es "promociones".
 8. Si sigues dudando, "otros".
 
@@ -138,6 +153,13 @@ EJEMPLOS:
 - "You finished <libro>. What's next?" de Goodreads -> otros
 - "Updates from tus amigas" de Goodreads (resumen de la plataforma) -> otros
 - "Lucía Espinosa via Notion: Page shared with you" -> personal
+- "Fwd: acceso anticipado a las rebajas", reenviado por tu madre -> promociones
+- "CASTING ONLINE, te pagan" de una agencia -> trabajo
+- "Evento de peluquería profesional, plazas" de una agencia -> trabajo
+- "Onsite Voice Recording Opportunity" (trabajo pagado) -> trabajo
+- "Leo Ashworth liked tu publicación" -> avisos
+- "Tu solicitud está en revisión" -> avisos
+- "Hemos recibido tu solicitud" -> avisos
 - "Mónica (vía Google Drive) ha compartido una carpeta" -> personal
 - "Weekly Digest" de una plataforma de contenido -> otros
 - "Gana un bono de 3.500 EUR para viajar" del banco -> promociones

@@ -155,10 +155,23 @@ regenerar una propuesta nueva.
       `test2` sigue limpio: no se ha tocado el prompt después de medirlo. En cuanto se
       toque, hace falta un `test3`.
 
-      **Fallo principal, y es de generalización**: 6 de los 21 errores son ofertas de
-      trabajo remunerado de una agencia de casting. El prompt tiene ejemplos de portales
-      de empleo (InfoJobs, Yobalia) y aprendió "portal de empleo → trabajo" en vez de
-      "te ofrecen trabajo pagado → trabajo". Con un remitente nuevo, falla.
+      **Fallo principal, de generalización, ya corregido**: 6 de los 21 errores eran
+      ofertas de trabajo remunerado de una agencia de casting. El prompt tenía ejemplos
+      de portales de empleo y aprendió "portal de empleo → trabajo" en vez de "te ofrecen
+      trabajo pagado → trabajo". El prompt v5 lo generaliza: `trabajo` pasa de 7/13 a
+      **13/13**.
+
+      | prompt | test2 | trabajo | promociones |
+      |---|---|---|---|
+      | v4 | 73,8% (limpio) | 7/13 | 18/21 |
+      | v5 | 76,2% (contaminado) | 13/13 | 14/21 |
+
+      Ganancia neta pequeña: el arreglo de `trabajo` sumó 6 y `promociones` perdió 4,
+      parte de ellos boletines de ONG donde la etiqueta propia es discutible. Es lo normal
+      al tocar un prompt ya afinado: cada cambio mueve cosas en las dos direcciones.
+
+      **`test2` también está quemado** (el v5 se escribió viendo sus fallos). Medir el v5
+      honestamente requiere un `test3` de correos nuevos etiquetados a ciegas.
 
 - [ ] Fase 7 — Sistema de propuestas
 - [ ] Fase 8 — Human-in-the-loop (frontend)
