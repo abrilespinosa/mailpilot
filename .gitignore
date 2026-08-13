@@ -17,6 +17,11 @@ venv/
 # macOS
 .DS_Store
 
+# Instrucciones para el asistente de IA. Se queda en local: contiene notas
+# personales y no forma parte de la documentación del proyecto.
+# La documentación pública vive en README.md y docs/decisions/.
+CLAUDE.md
+
 # Datos de evaluación: contienen remitentes y asuntos REALES de la bandeja.
 # El repo será público algún día; esto no debe salir de la máquina.
 # Se regeneran con: python scripts/build_labels.py
