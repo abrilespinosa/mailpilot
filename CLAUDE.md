@@ -108,8 +108,10 @@ regenerar una propuesta nueva.
       `scripts/ingest.py` dos veces seguidas deja 20 correos, no 40.
 - [x] Fase 3 — Modelo de datos formal con SQLAlchemy + Alembic. Cuatro tablas en
       `src/mailpilot/models.py`, migración inicial aplicada. PostgreSQL 17 en Docker.
-- [ ] Fase 4 — Backend con FastAPI. **Siguiente paso.**
-- [ ] Fase 5 — IA local con Ollama
+- [x] Fase 4 — Backend con FastAPI. `src/mailpilot/api.py`, **solo lectura**: `/health`,
+      `/emails` (paginado) y `/emails/{id}`. Esquemas Pydantic en `schemas.py`, separados
+      a propósito de los modelos de SQLAlchemy. Sesión inyectada con `Depends`.
+- [ ] Fase 5 — IA local con Ollama. **Siguiente paso.**
 - [ ] Fase 6 — Evaluación de modelos
 - [ ] Fase 7 — Sistema de propuestas
 - [ ] Fase 8 — Human-in-the-loop (frontend)
@@ -147,6 +149,11 @@ python scripts/ingest.py      # ingestión completa: Gmail → PostgreSQL
 
 # Consultar la base de datos
 docker compose exec db psql -U mailpilot -d mailpilot
+
+# API
+uvicorn mailpilot.api:app --reload --app-dir src
+#   http://localhost:8000/docs   documentación interactiva, generada sola
+#   http://localhost:8000/emails
 ```
 
 **El puerto en el host es el 5433, no el 5432**: la máquina de desarrollo tiene un
@@ -206,8 +213,11 @@ mailpilot/
 │   ├── auth.py          # credenciales OAuth (único módulo que toca credentials/)
 │   ├── gmail.py         # lectura de la Gmail API → EmailData
 │   ├── db.py            # engine y sesiones (único que lee DATABASE_URL)
-│   ├── models.py        # las cuatro tablas + los enums cerrados
-│   └── repository.py    # guardado idempotente (upsert)
+│   ├── models.py        # las cuatro tablas + los enums cerrados (cómo se guardan)
+│   ├── schemas.py       # esquemas Pydantic de la API (cómo se exponen)
+│   ├── repository.py    # guardado idempotente (upsert)
+│   └── api.py           # FastAPI, solo lectura
+├── tests/                # pytest. fakes.py = dobles de la Gmail API
 ├── migrations/           # Alembic: env.py + versions/
 ├── scripts/              # scripts de prueba manual, no parte del producto
 ├── docker-compose.yml    # PostgreSQL 17, publicado en el puerto 5433 del host

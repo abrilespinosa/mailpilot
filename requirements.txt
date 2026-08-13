@@ -4,4 +4,9 @@ SQLAlchemy==2.0.52
 alembic==1.19.1
 psycopg[binary]==3.3.4
 python-dotenv==1.2.2
+
+# [standard] trae uvicorn (servidor), httpx (tests) y Jinja2 (plantillas HTML
+# para el dashboard de la Fase 8).
+fastapi[standard]==0.141.1
+
 pytest==9.1.1
