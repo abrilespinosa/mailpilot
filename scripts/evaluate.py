@@ -1,0 +1,184 @@
+"""
+Mide la calidad del clasificador contra el conjunto etiquetado a mano.
+
+Reclasifica los correos de evaluation/labels.json y compara con la etiqueta
+correcta. NO guarda nada en la tabla classifications: son experimentos, y
+mezclarlos con las clasificaciones reales ensuciaría el histórico.
+
+Guarda cada ejecución en evaluation/runs/<nombre>.json para poder comparar
+un prompt o un modelo con otro.
+
+    python scripts/evaluate.py --name baseline
+    python scripts/evaluate.py --name prompt-v2 --limit 20
+"""
+
+import argparse
+import json
+import sys
+import time
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from sqlalchemy import select
+
+from mailpilot.classifier import OllamaClient, classify_email
+from mailpilot.db import SessionLocal
+from mailpilot.gmail import EmailData
+from mailpilot.models import Email
+
+RAIZ = Path(__file__).resolve().parents[1] / "evaluation"
+LABELS = RAIZ / "labels.json"
+CATEGORIAS = [
+    "personal",
+    "trabajo",
+    "compras",
+    "banco",
+    "avisos",
+    "promociones",
+    "otros",
+]
+
+
+def to_email_data(email: Email) -> EmailData:
+    return EmailData(
+        gmail_message_id=email.gmail_message_id,
+        gmail_thread_id=email.gmail_thread_id,
+        subject=email.subject,
+        sender=email.sender,
+        snippet=email.snippet,
+        received_at=email.received_at,
+        raw_labels=email.raw_labels,
+    )
+
+
+def matriz_de_confusion(resultados: list[dict]) -> None:
+    """
+    Filas = categoría correcta, columnas = lo que dijo el modelo.
+
+    La diagonal son los aciertos. Lo de fuera enseña QUÉ confunde con qué, que
+    es mucho más útil que un porcentaje suelto para saber dónde tocar.
+    """
+    conteo = defaultdict(Counter)
+    for r in resultados:
+        conteo[r["expected"]][r["predicted"]] += 1
+
+    presentes = [c for c in CATEGORIAS if conteo[c] or any(c in v for v in conteo.values())]
+
+    print("\n  correcta \\ predicha")
+    print("  " + " " * 13 + "".join(f"{c[:6]:>8}" for c in presentes))
+    for correcta in presentes:
+        fila = "".join(f"{conteo[correcta][p] or '·':>8}" for p in presentes)
+        print(f"  {correcta:13}{fila}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--name", required=True, help="nombre de esta ejecución")
+    parser.add_argument("--limit", type=int, help="usar solo los N primeros")
+    args = parser.parse_args()
+
+    etiquetas = json.loads(LABELS.read_text())
+    if args.limit:
+        etiquetas = etiquetas[: args.limit]
+
+    client = OllamaClient()
+    print(f"Ejecución: {args.name}")
+    print(f"Modelo:    {client.model}")
+    print(f"Correos:   {len(etiquetas)}\n")
+
+    resultados = []
+    fallos_validacion = 0
+
+    with SessionLocal() as session:
+        for n, etiqueta in enumerate(etiquetas, start=1):
+            email = session.get(Email, etiqueta["email_id"])
+            if email is None:
+                continue
+
+            inicio = time.perf_counter()
+            try:
+                salida = classify_email(client, to_email_data(email))
+                predicha = salida.category.value
+                confianza = salida.confidence
+            except Exception as error:
+                fallos_validacion += 1
+                predicha = "ERROR"
+                confianza = None
+                print(f"  [{n:3}] FALLO: {type(error).__name__}")
+            segundos = time.perf_counter() - inicio
+
+            acierto = predicha == etiqueta["expected"]
+            resultados.append(
+                {
+                    "email_id": etiqueta["email_id"],
+                    "subject": etiqueta["subject"],
+                    "expected": etiqueta["expected"],
+                    "predicted": predicha,
+                    "confidence": confianza,
+                    "correct": acierto,
+                    "seconds": round(segundos, 2),
+                }
+            )
+
+            marca = "ok " if acierto else "MAL"
+            print(
+                f"  [{n:3}] {marca} {etiqueta['expected']:12} -> {predicha:12} "
+                f"{segundos:5.1f}s  {etiqueta['subject'][:38]}"
+            )
+
+    aciertos = sum(1 for r in resultados if r["correct"])
+    total = len(resultados)
+    precision = aciertos / total if total else 0
+
+    print(f"\n{'=' * 62}")
+    print(f"  ACIERTO: {aciertos}/{total} = {precision:.1%}")
+    print(f"  fallos de validación: {fallos_validacion}")
+    tiempos = [r["seconds"] for r in resultados]
+    print(f"  tiempo medio: {sum(tiempos) / len(tiempos):.1f}s por correo")
+
+    # Calibración: si la confianza sirviera de algo, los aciertos deberían
+    # tener confianza más alta que los fallos. Si son iguales, no informa.
+    conf_ok = [r["confidence"] for r in resultados if r["correct"] and r["confidence"]]
+    conf_mal = [
+        r["confidence"] for r in resultados if not r["correct"] and r["confidence"]
+    ]
+    if conf_ok and conf_mal:
+        print(f"\n  confianza media en aciertos: {sum(conf_ok) / len(conf_ok):.3f}")
+        print(f"  confianza media en fallos:   {sum(conf_mal) / len(conf_mal):.3f}")
+        print("  (si se parecen, la confianza no sirve como umbral)")
+
+    matriz_de_confusion(resultados)
+
+    print("\n  Fallos:")
+    for r in resultados:
+        if not r["correct"]:
+            print(
+                f"    {r['expected']:12} -> {r['predicted']:12} {r['subject'][:44]}"
+            )
+
+    destino = RAIZ / "runs" / f"{args.name}.json"
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(
+        json.dumps(
+            {
+                "name": args.name,
+                "model": client.model,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "accuracy": precision,
+                "correct": aciertos,
+                "total": total,
+                "results": resultados,
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+    print(f"\n  guardado en {destino}")
+
+
+if __name__ == "__main__":
+    main()

@@ -16,3 +16,9 @@ venv/
 
 # macOS
 .DS_Store
+
+# Datos de evaluación: contienen remitentes y asuntos REALES de la bandeja.
+# El repo será público algún día; esto no debe salir de la máquina.
+# Se regeneran con: python scripts/build_labels.py
+evaluation/labels.json
+evaluation/runs/
