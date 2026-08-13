@@ -92,7 +92,7 @@ def test_la_categoria_es_del_enum_no_un_texto():
 
 @pytest.mark.parametrize(
     "categoria",
-    ["personal", "trabajo", "compras", "banco", "avisos", "promociones", "otros"],
+    ["personal", "trabajo", "compras", "tramites", "avisos", "promociones", "otros"],
 )
 def test_acepta_las_siete_categorias_del_adr(categoria):
     resultado = classify_email(FakeOllama(respuesta_valida(categoria)), make_email())
@@ -227,7 +227,7 @@ def test_se_le_pasa_el_esquema_cerrado_a_ollama():
         "personal",
         "trabajo",
         "compras",
-        "banco",
+        "tramites",
         "avisos",
         "promociones",
         "otros",

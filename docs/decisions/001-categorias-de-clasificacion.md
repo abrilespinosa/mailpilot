@@ -142,6 +142,44 @@ duda, no por ser boletines.
 En el dashboard no se podrán distinguir. Pendiente de decidir: separar en una
 categoría `boletines`, o llevar los digests a `avisos`.
 
+## Revisión del 2026-08-13 (segunda): `banco` pasa a llamarse `tramites`
+
+`banco` ya contenía cosas que de bancario no tienen nada: la ayuda de Verano
+Joven del Ministerio de Transportes, la tarjeta del Bono Cultural Joven. La
+definición decía "trámites" desde el principio, pero el nombre sugería otra
+cosa, y un nombre que no encaja con su contenido confunde al modelo y a quien
+lee el dashboard.
+
+**`tramites`**: gestiones y papeleo. Bancos (extractos, movimientos, tarjetas,
+seguros), administración pública, ayudas, subvenciones, documentación que
+firmar o aportar.
+
+Migración `c2b681487998`, escrita a mano. Alembic NO detecta el renombrado de un
+valor de enum: con `--autogenerate` habría intentado borrar y recrear el tipo,
+perdiendo las filas. `ALTER TYPE ... RENAME VALUE` cambia la etiqueta en el
+sitio, sin tocar los datos.
+
+### Los boletines se quedan en `otros` (decisión de la usuaria)
+
+Se descartó crear una categoría `boletines`. Consecuencia asumida: `otros` sigue
+significando dos cosas, "boletín suscrito" y "el modelo duda", y en el dashboard
+no se podrán distinguir.
+
+### Regla nueva: contenido frente a cuenta
+
+El mismo remitente manda las dos cosas, y la frontera estaba sin definir:
+
+- Si un servicio te habla de **contenido** (libros, artículos, retos,
+  actividad de tus contactos) -> `otros`
+- Si te habla de **tu cuenta** (acceso, seguridad, configuración) -> `avisos`
+
+Ejemplo: "You finished <libro>. What's next?" de Goodreads es `otros`;
+"goodreads.com: Sign-in" es `avisos`.
+
+Reetiquetar los siete correos de Goodreads según esta regla subió el acierto
+medido de qwen3 del 70,0% al 77,5% **sin tocar el modelo ni el prompt**: seis de
+los fallos eran error de etiquetado, no del clasificador.
+
 ## Consecuencias
 
 - Las definiciones de la tabla y las reglas de desempate son la fuente única del prompt de

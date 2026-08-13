@@ -41,12 +41,18 @@ class Base(DeclarativeBase):
 
 
 class Category(str, enum.Enum):
-    """Las siete categorías. Cambiar esta lista requiere migración de Alembic."""
+    """
+    Las siete categorías. Cambiar esta lista requiere migración de Alembic.
+
+    `tramites` se llamaba `banco` hasta 2026-08-13. Se renombró porque ya
+    contenía ayudas públicas y trámites con la administración, que de bancario
+    no tienen nada. Ver ADR 001.
+    """
 
     PERSONAL = "personal"
     TRABAJO = "trabajo"
     COMPRAS = "compras"
-    BANCO = "banco"
+    TRAMITES = "tramites"
     AVISOS = "avisos"
     PROMOCIONES = "promociones"
     OTROS = "otros"

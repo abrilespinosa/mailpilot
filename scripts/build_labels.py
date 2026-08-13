@@ -33,8 +33,8 @@ SALIDA = Path(__file__).resolve().parents[1] / "evaluation" / "labels.json"
 # dev: sobre estos se afinó el prompt v2. Su 87,5% está inflado.
 # --------------------------------------------------------------------------
 DEV = {
-    1: "avisos",        # Goodreads, resumen social automático
-    2: "banco",
+    1: "otros",         # Goodreads habla de libros, no de la cuenta
+    2: "tramites",
     3: "promociones",
     4: "trabajo",       # Yobalia es un portal de empleo
     5: "promociones",
@@ -58,7 +58,7 @@ DEV = {
     63: "trabajo",      # inscripción en ofertas de empleo
     64: "promociones",  # BBVA haciendo marketing, no una gestión bancaria
     65: "avisos",       # password reset
-    66: "banco",        # trámite de una ayuda pública
+    66: "tramites",        # trámite de una ayuda pública
     67: "avisos",
     68: "trabajo",
     69: "trabajo",
@@ -123,13 +123,13 @@ TEST = {
     122: "promociones",
     123: "avisos",      # aviso de que un servicio se retira
     204: "avisos",
-    205: "avisos",      # Goodreads sobre tu actividad de lectura
+    205: "otros",       # Goodreads: recomendación de lectura
     206: "personal",    # Lucía comparte una página de Notion
     207: "avisos",
     208: "avisos",
     209: "promociones",
     210: "otros",
-    211: "avisos",
+    211: "otros",       # Goodreads: recomendación de lectura
     212: "promociones",
     213: "promociones",
     214: "promociones",
@@ -139,32 +139,32 @@ TEST = {
     218: "avisos",      # inicio de sesión
     219: "avisos",
     220: "promociones",
-    221: "avisos",
+    221: "otros",       # Goodreads: recomendación de lectura
     222: "avisos",
-    223: "banco",       # documentación previa a una firma
+    223: "tramites",       # documentación previa a una firma
     224: "promociones",
     225: "compras",     # encuesta de Fnac sobre una compra
     226: "promociones",
     227: "avisos",
     228: "avisos",
     229: "trabajo",
-    230: "avisos",
+    230: "otros",       # Goodreads: recomendación de lectura
     231: "promociones",
-    232: "banco",       # el banco avisando de una estafa
+    232: "tramites",       # el banco avisando de una estafa
     233: "trabajo",
     234: "trabajo",
-    235: "avisos",
+    235: "otros",       # Goodreads: recomendación de lectura
     236: "avisos",
     237: "personal",
     238: "promociones",
     239: "promociones",
     240: "trabajo",
     241: "promociones",
-    242: "banco",       # trámite de la tarjeta del Bono Cultural
+    242: "tramites",       # trámite de la tarjeta del Bono Cultural
     243: "promociones",
     244: "trabajo",
     245: "personal",
-    246: "banco",
+    246: "tramites",
     247: "personal",
     248: "avisos",      # código de un solo uso
     249: "avisos",
@@ -180,7 +180,7 @@ TEST = {
     259: "promociones",  # onboarding comercial de Kaggle
     260: "avisos",       # código de InfoJobs
     261: "trabajo",
-    262: "banco",        # Mónica reenvía una notificación del BBVA
+    262: "tramites",        # Mónica reenvía una notificación del BBVA
     263: "avisos",
     264: "avisos",
     265: "avisos",
@@ -191,24 +191,24 @@ TEST = {
     270: "promociones",
     271: "promociones",
     272: "avisos",       # código de acceso de Inditex
-    273: "banco",
+    273: "tramites",
     274: "avisos",
     275: "avisos",
     276: "promociones",
     277: "promociones",  # BBVA vendiendo un producto
-    278: "avisos",
+    278: "otros",       # Goodreads: recomendación de lectura
     279: "promociones",
     280: "promociones",  # boletín de una fundación
 }
 
 # Casos donde la definición del ADR 001 no decide con claridad.
 DUDOSOS = {
-    66: "resuelto como 'banco' porque su definición incluye 'trámites'. "
+    66: "resuelto como 'tramites' porque su definición incluye 'trámites'. "
         "Reabrir si se crea una categoría propia para gestiones",
-    242: "instrucciones sobre la tarjeta del Bono Cultural: ¿'banco' por ser "
+    242: "instrucciones sobre la tarjeta del Bono Cultural: ¿'tramites' por ser "
          "un trámite, o 'promociones' como el otro correo del mismo emisor?",
     262: "una persona real reenvía una notificación del banco. Puesto en "
-         "'banco' por contenido, siguiendo el criterio de las entradas de "
+         "'tramites' por contenido, siguiendo el criterio de las entradas de "
          "Cinesa reenviadas. ¿O 'personal' por remitente?",
     266: "correo de la usuaria a sí misma, sin extracto. Imposible de "
          "clasificar por asunto",

@@ -50,10 +50,21 @@ class ClassificationResult(BaseModel):
 
 # Versión del prompt. Se guarda en los resultados de evaluación para poder
 # comparar mediciones: sin esto, un número suelto no dice contra qué se midió.
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v4"
 
 # Las definiciones salen del ADR 001. Si cambian allí, hay que cambiarlas
 # aquí: son la especificación que lee el modelo.
+#
+# v4: regla 0. El v3 hundió "personal" a 0/5 mandándolos todos a "otros":
+# la regla 5 decía "actividad de tus contactos -> otros", pensada para el
+# digest de Goodreads, y se llevó por delante a las personas reales que
+# comparten documentos ("Lucía Espinosa via Notion"). El acierto global
+# subía mientras la categoría más importante se rompía.
+#
+# v3: "banco" pasa a "tramites" (ya contenía ayudas públicas), y se añaden
+# reglas para los dos agujeros que medimos en el conjunto de test: contenido
+# vs cuenta del mismo remitente, y notificaciones de apps que acababan en
+# "otros" pese a estar descritas en "avisos".
 #
 # v2, tras medir la v1 sobre 80 correos reales (50% de acierto):
 # - "ofertas" desaparece de la definición de promociones. En español significa
@@ -76,18 +87,25 @@ CATEGORÍAS:
 - compras: algo que la usuaria compró o contrató. Confirmaciones de pedido,
   entradas, tickets, comprobantes de pago, envíos, devoluciones, y encuestas
   sobre una compra concreta
-- banco: dinero y gestiones. Extractos, movimientos, tarjetas, seguros y
-  trámites con la administración pública
-- avisos: notificaciones automáticas de un servicio sobre TU CUENTA o TU
-  ACTIVIDAD. Códigos de verificación, restablecer contraseña, alertas de
-  seguridad, altas de cuenta, cambios en los términos de uso, avisos de
+- tramites: gestiones y papeleo. Bancos (extractos, movimientos, tarjetas,
+  seguros), administración pública, ayudas, subvenciones, documentación que
+  firmar o aportar
+- avisos: notificaciones automáticas de un servicio sobre TU CUENTA. Códigos
+  de verificación, restablecer contraseña, alertas de seguridad, inicios de
+  sesión, altas de cuenta, cambios en los términos de uso, avisos de
   almacenamiento, menciones en aplicaciones
 - promociones: publicidad de marcas. Descuentos, rebajas, campañas, novedades
   de producto, sorteos y boletines comerciales
-- otros: boletines de contenido al que te has suscrito (artículos, retos de
-  programación), y cualquier correo que no encaje con claridad
+- otros: boletines de contenido al que te has suscrito (artículos, libros,
+  retos de programación, recomendaciones de lectura), y cualquier correo que
+  no encaje con claridad
 
 REGLAS, EN ORDEN DE PRIORIDAD:
+0. Si detrás del correo hay una PERSONA CONCRETA con nombre y apellido que ha
+   hecho algo dirigido a ti (compartir un documento, invitarte, escribirte),
+   es "personal". Da igual que lo entregue un servicio: "Lucía Espinosa via
+   Notion", "Mónica Tortuero (vía Google Drive)" son personas, no servicios.
+   Un remitente que es una marca o una plataforma NO cuenta.
 1. Si trata de empleo (una vacante, una alerta de un portal de empleo, una
    candidatura), es "trabajo" AUNQUE use la palabra "ofertas". En español
    "ofertas" significa tanto descuentos como vacantes: aquí manda el contexto.
@@ -96,9 +114,17 @@ REGLAS, EN ORDEN DE PRIORIDAD:
    comercial.
 3. Si se refiere a una compra concreta que la usuaria hizo, es "compras",
    incluidas las encuestas de satisfacción posteriores.
-4. Entre "banco" y "avisos" gana "banco" cuando hay dinero o un trámite.
-5. Publicidad sin relación con una compra concreta es "promociones".
-6. Si sigues dudando, "otros".
+4. Entre "tramites" y "avisos" gana "tramites" cuando hay dinero, papeleo o
+   una gestión de por medio.
+5. Si una PLATAFORMA te habla de CONTENIDO (libros, artículos, retos,
+   novedades editoriales, resúmenes de lo que leen otros usuarios) es
+   "otros". Si te habla de TU CUENTA (acceso, seguridad, configuración) es
+   "avisos". El mismo remitente manda las dos cosas. Esta regla NO se
+   aplica cuando detrás hay una persona concreta: eso es la regla 0.
+6. Una notificación de una aplicación sobre tu actividad dentro de ella
+   (menciones, logros, insignias) es "avisos", no "otros".
+7. Publicidad sin relación con una compra concreta es "promociones".
+8. Si sigues dudando, "otros".
 
 EJEMPLOS:
 - "Resumen de ofertas diarias" de un portal de empleo -> trabajo
@@ -106,10 +132,21 @@ EJEMPLOS:
 - "[GitHub] Sudo email verification code" -> avisos
 - "Alerta de seguridad: nuevo inicio de sesión" -> avisos
 - "Bienvenido a Renfe" (alta de cuenta) -> avisos
+- "X te ha mencionado en un servidor" de Discord -> avisos
+- "New Badge Received" de una plataforma -> avisos
+- "goodreads.com: Sign-in" -> avisos
+- "You finished <libro>. What's next?" de Goodreads -> otros
+- "Updates from tus amigas" de Goodreads (resumen de la plataforma) -> otros
+- "Lucía Espinosa via Notion: Page shared with you" -> personal
+- "Mónica (vía Google Drive) ha compartido una carpeta" -> personal
+- "Weekly Digest" de una plataforma de contenido -> otros
 - "Gana un bono de 3.500 EUR para viajar" del banco -> promociones
-- "Informe mensual BBVA" -> banco
+- "Informe mensual BBVA" -> tramites
+- "Revisa la documentación de adhesión" del banco -> tramites
+- "Sube tus tickets del Bono Cultural" -> tramites
 - "TUS ENTRADAS Y CONFIRMACION" del cine -> compras
 - "Hasta 40% de descuento" de una tienda -> promociones
+- "No te pierdas el concierto de X" -> promociones
 
 CONFIANZA:
 Un número entre 0 y 1 con lo seguro que estás. Sé honesto y usa todo el rango:

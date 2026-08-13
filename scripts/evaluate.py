@@ -41,7 +41,7 @@ CATEGORIAS = [
     "personal",
     "trabajo",
     "compras",
-    "banco",
+    "tramites",
     "avisos",
     "promociones",
     "otros",

@@ -169,7 +169,7 @@ def test_postgres_acepta_las_siete_categorias(session):
         "personal",
         "trabajo",
         "compras",
-        "banco",
+        "tramites",
         "avisos",
         "promociones",
         "otros",
