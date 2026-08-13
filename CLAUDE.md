@@ -111,8 +111,15 @@ regenerar una propuesta nueva.
 - [x] Fase 4 — Backend con FastAPI. `src/mailpilot/api.py`, **solo lectura**: `/health`,
       `/emails` (paginado) y `/emails/{id}`. Esquemas Pydantic en `schemas.py`, separados
       a propósito de los modelos de SQLAlchemy. Sesión inyectada con `Depends`.
-- [ ] Fase 5 — IA local con Ollama. **Siguiente paso.**
-- [ ] Fase 6 — Evaluación de modelos
+- [x] Fase 5 — IA local con Ollama. `src/mailpilot/classifier.py` con structured output
+      validado contra el enum cerrado. Ollama **nativo** en macOS (usa la GPU del M5) en el
+      puerto **11435**: el 11434 lo ocupa el contenedor de otro proyecto, y Ollama en Docker
+      sobre Mac solo usa CPU. Modelo `qwen3:8b` (Q4_K_M, 5.2 GB).
+      Primera medición sobre 20 correos reales: 0 fallos de validación, 11 s de media por
+      correo, ~17/20 aciertos. **La confianza no está calibrada**: 0.95 en 18 de 20, así
+      que no sirve como umbral para decidir nada automáticamente.
+- [ ] Fase 6 — Evaluación de modelos. **Siguiente paso.** Hace falta un conjunto etiquetado
+      a mano para medir en serio, y comparar al menos otro modelo.
 - [ ] Fase 7 — Sistema de propuestas
 - [ ] Fase 8 — Human-in-the-loop (frontend)
 - [ ] Fase 9 — Gmail Actions (categorizar, mover a papelera)
@@ -146,6 +153,11 @@ alembic current                                       # en qué versión está l
 python scripts/test_auth.py   # verificar OAuth (abre el navegador la primera vez)
 python scripts/list_emails.py # leer correos e imprimirlos, sin tocar la BD
 python scripts/ingest.py      # ingestión completa: Gmail → PostgreSQL
+python scripts/classify.py    # clasificar con Ollama los correos sin categoría
+
+# Ollama (nativo, no el de Docker)
+OLLAMA_HOST=127.0.0.1:11435 /Applications/Ollama.app/Contents/Resources/ollama serve
+OLLAMA_HOST=127.0.0.1:11435 /Applications/Ollama.app/Contents/Resources/ollama list
 
 # Consultar la base de datos
 docker compose exec db psql -U mailpilot -d mailpilot

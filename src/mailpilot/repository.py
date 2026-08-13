@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from mailpilot.gmail import EmailData
-from mailpilot.models import AuditLog, Email
+from mailpilot.models import AuditLog, Classification, Email
 
 
 def _count_emails(session: Session) -> int:
@@ -79,3 +79,63 @@ def upsert_emails(session: Session, emails: list[EmailData]) -> tuple[int, int]:
     session.commit()
 
     return (inserted, updated)
+
+
+def emails_sin_clasificar(session: Session, limit: int = 50) -> list[Email]:
+    """
+    Correos que todavía no tiene ninguna clasificación.
+
+    Permite reejecutar la clasificación sin volver a pagar el coste de los
+    correos ya procesados: un modelo de 8B tarda segundos por correo.
+    """
+    ya_clasificados = select(Classification.email_id).distinct()
+
+    return list(
+        session.execute(
+            select(Email)
+            .where(Email.id.not_in(ya_clasificados))
+            .order_by(Email.received_at.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def save_classification(
+    session: Session,
+    email_id: int,
+    category,
+    confidence: float,
+    reasoning: str,
+    model_used: str,
+) -> Classification:
+    """
+    Guarda una clasificación. Siempre INSERT, nunca UPDATE.
+
+    Reclasificar un correo añade una fila nueva en vez de sobrescribir la
+    anterior. Eso deja histórico para comparar modelos y prompts en la Fase 6.
+    """
+    classification = Classification(
+        email_id=email_id,
+        category=category,
+        confidence=confidence,
+        reasoning=reasoning,
+        model_used=model_used,
+    )
+    session.add(classification)
+
+    session.add(
+        AuditLog(
+            email_id=email_id,
+            event_type="email_classified",
+            detail={
+                "category": category.value,
+                "confidence": confidence,
+                "model": model_used,
+            },
+        )
+    )
+    session.commit()
+
+    return classification
