@@ -154,9 +154,25 @@ PostgreSQL nativo ocupando el 5432. Dentro del contenedor sigue siendo el 5432. 
 conectar con TablePlus/DBeaver hay que usar 5433, o se acaba en la base de datos
 equivocada y parece que la ingestión no guarda nada.
 
-Aún no hay tests automatizados, linter ni formateador configurados. `pytest` está en el
-stack previsto pero no instalado. Cuando se añadan (Fase 10), documentar aquí el comando
-para ejecutar un test individual.
+```bash
+# Tests
+pytest                                    # todo
+pytest -m "not db"                        # solo los que no necesitan PostgreSQL
+pytest tests/test_gmail.py                # un archivo
+pytest tests/test_gmail.py::test_bandeja_vacia   # un test suelto
+pytest -k "idempot"                       # los que casen con un patrón
+pytest -v                                 # con el nombre de cada test
+```
+
+Los tests de base de datos usan una base aparte, `mailpilot_test`, que
+`tests/conftest.py` crea sola si no existe. Cada test corre en una transacción que se
+revierte al terminar, así que no dejan rastro y el orden no importa. Nunca tocan
+`mailpilot`, la base con los correos reales.
+
+Se usa PostgreSQL de verdad y no SQLite a propósito: el esquema depende de ENUM nativos
+y JSONB, que SQLite no tiene. Con SQLite los tests pasarían y producción fallaría.
+
+No hay linter ni formateador configurados todavía.
 
 ## Notas de implementación relevantes
 

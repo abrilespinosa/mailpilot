@@ -78,7 +78,9 @@ def list_message_ids(service, limit: int = 10) -> list[str]:
         if not page_token:
             break
 
-    return ids
+    # Recorte defensivo: si una página devolviera más mensajes de los pedidos
+    # en maxResults, sin esto la función devolvería más de `limit`.
+    return ids[:limit]
 
 
 def _headers_to_dict(payload: dict) -> dict[str, str]:
