@@ -13,6 +13,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from mailpilot.models import Category, ProposalStatus, ProposedAction
+
 
 class EmailSummary(BaseModel):
     """Lo justo para pintar una fila en un listado."""
@@ -50,3 +52,41 @@ class EmailPage(BaseModel):
     limit: int
     offset: int
     items: list[EmailSummary]
+
+
+class ProposalOut(BaseModel):
+    """Una propuesta con el correo al que se refiere, para pintar una fila."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email_id: int
+    proposed_action: ProposedAction
+    category: Category | None
+    final_category: Category | None
+    reason: str | None
+    confidence: float | None
+    status: ProposalStatus
+    created_at: datetime
+    decided_at: datetime | None
+    email: EmailSummary
+
+
+class ProposalPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[ProposalOut]
+
+
+class DecisionIn(BaseModel):
+    """
+    Lo que manda la usuaria al decidir.
+
+    `category` solo se usa al modificar. Es un enum, así que la API rechaza
+    con 422 cualquier categoría inventada antes de tocar la base de datos:
+    la misma defensa que se aplica a la salida del LLM, ahora en la entrada
+    de la API.
+    """
+
+    category: Category | None = None

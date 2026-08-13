@@ -231,8 +231,19 @@ class ActionProposal(Base):
     proposed_action: Mapped[ProposedAction] = mapped_column(
         PROPOSED_ACTION_ENUM, nullable=False
     )
-    # Nullable: solo tiene sentido cuando la acción es CATEGORIZE.
+    # Lo que propuso la IA. NO se modifica nunca, ni cuando la usuaria corrige:
+    # es el registro de lo que el modelo dijo, y sin él no se puede saber en qué
+    # se equivocó. Nullable porque solo aplica a la acción CATEGORIZE.
     category: Mapped[Category | None] = mapped_column(CATEGORY_ENUM)
+
+    # Lo que decidió la usuaria. Null mientras la propuesta está pendiente.
+    # Al aprobar se copia `category`; al modificar se guarda su elección.
+    #
+    # Que sean dos columnas y no una es lo que permite la consulta que importa:
+    #   WHERE category != final_category  ->  aquí se equivocó el modelo
+    # Esas filas son etiquetas correctas conseguidas gratis, con datos de uso
+    # real, y hacen crecer el conjunto de evaluación sin etiquetar a mano.
+    final_category: Mapped[Category | None] = mapped_column(CATEGORY_ENUM)
 
     reason: Mapped[str | None] = mapped_column(Text)
 

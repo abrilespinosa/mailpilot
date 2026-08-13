@@ -147,18 +147,45 @@ def test_el_listado_solo_expone_los_campos_previstos(client, session):
     }
 
 
-def test_la_api_es_de_solo_lectura(client):
-    """
-    No existe ningún endpoint que modifique nada todavía.
+ESCRITURA_PERMITIDA = {
+    ("POST", "/proposals/{proposal_id}/approve"),
+    ("POST", "/proposals/{proposal_id}/modify"),
+    ("POST", "/proposals/{proposal_id}/reject"),
+}
 
-    Las acciones llegan en la Fase 7 y deben pasar por el flujo de propuesta y
-    aprobación. Si algún día este test falla, es que se ha colado un endpoint
-    de escritura sin ese flujo.
+
+def test_solo_escriben_los_endpoints_de_decision():
+    """
+    Lista blanca de escritura.
+
+    Los únicos endpoints que modifican algo son los que registran una decisión
+    de la usuaria sobre una propuesta. Cualquier endpoint de escritura nuevo
+    hace fallar este test hasta que alguien lo añada aquí a propósito.
+
+    Es la salvaguarda del principio del proyecto: la IA propone, la usuaria
+    decide. Si algún día aparece un POST /emails/{id}/trash que no pase por una
+    propuesta aprobada, saltará por aquí.
     """
     metodos_de_escritura = {"POST", "PUT", "PATCH", "DELETE"}
+    encontrados = set()
 
     for route in app.routes:
+        if not hasattr(route, "methods"):
+            continue
+        for metodo in route.methods & metodos_de_escritura:
+            encontrados.add((metodo, route.path))
+
+    assert encontrados == ESCRITURA_PERMITIDA
+
+
+def test_ningun_endpoint_borra_nada():
+    """
+    DELETE no existe y no debe existir.
+
+    El borrado permanente está fuera del alcance del proyecto, no solo del MVP.
+    Lo único destructivo permitido es mover a papelera, reversible 30 días en
+    Gmail, y llegará como ejecución de una propuesta aprobada.
+    """
+    for route in app.routes:
         if hasattr(route, "methods"):
-            assert not (route.methods & metodos_de_escritura), (
-                f"{route.path} acepta {route.methods & metodos_de_escritura}"
-            )
+            assert "DELETE" not in route.methods, route.path

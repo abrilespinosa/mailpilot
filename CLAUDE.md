@@ -173,7 +173,18 @@ regenerar una propuesta nueva.
       **`test2` también está quemado** (el v5 se escribió viendo sus fallos). Medir el v5
       honestamente requiere un `test3` de correos nuevos etiquetados a ciegas.
 
-- [ ] Fase 7 — Sistema de propuestas
+- [x] Fase 7 — Sistema de propuestas. `generar_propuestas` crea una propuesta pendiente
+      por correo clasificado; `decidir_propuesta` registra aprobar / corregir / rechazar.
+      Endpoints: `GET /proposals`, `POST /proposals/{id}/approve|modify|reject`.
+      **Solo propone `categorize`**, nunca papelera: eso llega en la Fase 9, cuando exista
+      la ejecución real y se pueda probar de punta a punta.
+      `ActionProposal.category` guarda lo que dijo la IA y **nunca se sobrescribe**;
+      `final_category` guarda la decisión de la usuaria. `WHERE category != final_category`
+      da las correcciones: etiquetas correctas obtenidas con uso real, sin etiquetar a
+      mano, que hacen crecer el conjunto de evaluación.
+      **Ojo al usarlas**: si alimentan a la vez el conjunto de afinar y el de medir, se
+      repite el sobreajuste de la Fase 6. Hay que repartirlas entre `dev` y `test`.
+      Decidir dos veces devuelve 409, no sobrescribe en silencio.
 - [ ] Fase 8 — Human-in-the-loop (frontend)
 - [ ] Fase 9 — Gmail Actions (categorizar, mover a papelera)
 - [ ] Fase 10 en adelante — seguridad avanzada, Docker completo, async si hace falta,
