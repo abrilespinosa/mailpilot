@@ -118,8 +118,16 @@ regenerar una propuesta nueva.
       Primera medición sobre 20 correos reales: 0 fallos de validación, 11 s de media por
       correo, ~17/20 aciertos. **La confianza no está calibrada**: 0.95 en 18 de 20, así
       que no sirve como umbral para decidir nada automáticamente.
-- [ ] Fase 6 — Evaluación de modelos. **Siguiente paso.** Hace falta un conjunto etiquetado
-      a mano para medir en serio, y comparar al menos otro modelo.
+- [~] Fase 6 — Evaluación de modelos. Conjunto de 80 correos etiquetados a mano
+      (`evaluation/labels.json`, gitignored: contiene datos reales). `scripts/evaluate.py`
+      mide acierto, matriz de confusión y calibración; `--rescore` repuntúa una ejecución
+      guardada sin repetir la inferencia.
+      Medido con `qwen3:8b`: prompt v1 **50,0%**, prompt v2 **87,5%**.
+      **Pendiente**: (a) reservar un conjunto de prueba que no se use para afinar el prompt
+      — ahora mismo se está midiendo sobre los mismos correos con los que se ajusta;
+      (b) comparar contra un segundo modelo.
+      **Resultado firme**: la confianza NO sirve como umbral (0,953 en aciertos frente a
+      0,920 en fallos). Pedirle al modelo que se calibre empeoró la separación.
 - [ ] Fase 7 — Sistema de propuestas
 - [ ] Fase 8 — Human-in-the-loop (frontend)
 - [ ] Fase 9 — Gmail Actions (categorizar, mover a papelera)

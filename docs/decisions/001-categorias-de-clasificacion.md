@@ -80,6 +80,68 @@ renombra** sin migración.
 - **Categoría `universidad` propia**: descartada. El correo de la facultad no llega a esta
   cuenta de Gmail.
 
+## Revisión del 2026-08-13: definiciones afinadas con datos
+
+Las definiciones originales se midieron sobre 80 correos reales etiquetados a
+mano: **50,0% de acierto**. Tras afinarlas, **87,5%**. Las de abajo sustituyen a
+las de la tabla anterior, que se conserva como registro de lo que se decidió al
+principio.
+
+| Categoría | Definición vigente |
+|---|---|
+| `personal` | Una persona real escribiéndote, aunque llegue a través de un servicio |
+| `trabajo` | Empleo y candidaturas: vacantes, alertas de portales de empleo, inscripciones, prácticas |
+| `compras` | Algo que la usuaria compró o contrató: pedidos, entradas, comprobantes, envíos, y encuestas sobre una compra concreta |
+| `banco` | Dinero y gestiones: extractos, movimientos, tarjetas, seguros, trámites con la administración |
+| `avisos` | Notificaciones de un servicio sobre TU CUENTA: códigos de verificación, contraseñas, alertas de seguridad, altas, términos de uso, menciones en apps |
+| `promociones` | Publicidad de marcas: descuentos, rebajas, campañas, novedades, sorteos, boletines comerciales |
+| `otros` | Boletines de contenido suscrito, y lo que no encaje con claridad |
+
+### Por qué cambiaron
+
+**"Ofertas" era la palabra del problema.** La definición original de `promociones`
+decía "marketing, newsletters, **ofertas** no solicitadas". En español "ofertas"
+significa tanto descuentos como vacantes de empleo, y la bandeja está llena de
+"Resumen de ofertas diarias" de portales de trabajo. El modelo mandaba a
+`promociones` 13 de los 16 correos de `trabajo`. Corregido: 16 de 16.
+
+No era un fallo del modelo, era ambigüedad de la especificación. Y solo se
+detectó al medir contra un conjunto etiquetado a mano.
+
+**`avisos` era demasiado vaga.** "Notificaciones automáticas de apps y servicios"
+no le decía al modelo dónde meter un código de verificación ni una alerta de
+seguridad. Enumerar los casos concretos la subió de 4/23 a 16/23.
+
+**Se añadieron reglas con prioridad y nueve ejemplos.** Un modelo de 8B aprende
+mucho más de un ejemplo concreto que de una definición abstracta.
+
+### La confianza no sirve como umbral
+
+Medido en las dos ejecuciones:
+
+| | confianza en aciertos | en fallos | diferencia |
+|---|---|---|---|
+| definiciones originales | 0,948 | 0,876 | +0,071 |
+| definiciones afinadas | 0,953 | 0,920 | +0,033 |
+
+Pedirle explícitamente al modelo que use todo el rango **empeoró** la separación.
+Con una confianza media de 0,92 en respuestas equivocadas, no existe un umbral
+que apruebe automáticamente lo correcto y detenga lo incorrecto.
+
+**Consecuencia para la Fase 7**: no se puede auto-aprobar por confianza alta.
+Toda propuesta pasa por decisión humana, o se busca otra señal de incertidumbre
+(votación entre varios modelos, o entropía de la salida).
+
+### `otros` tiene dos significados y eso es un problema
+
+Por decisión de la usuaria, los boletines de contenido suscrito van a `otros`.
+Pero `otros` también es la salida de escape para "el modelo duda". En la medición
+del prompt v2, 7 de los 10 fallos fueron correos que acabaron en `otros` por
+duda, no por ser boletines.
+
+En el dashboard no se podrán distinguir. Pendiente de decidir: separar en una
+categoría `boletines`, o llevar los digests a `avisos`.
+
 ## Consecuencias
 
 - Las definiciones de la tabla y las reglas de desempate son la fuente única del prompt de

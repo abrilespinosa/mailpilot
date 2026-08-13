@@ -64,17 +64,17 @@ ETIQUETAS = {
     80: "promociones",  # onboarding comercial de Docker
     81: "avisos",       # código de un solo uso
     82: "avisos",
-    83: "avisos",       # petición de reseña tras una compra
+    83: "compras",      # petición de reseña tras una compra (decisión de la usuaria)
     84: "avisos",
-    85: "avisos",       # digest de Substack, suscrito a propósito
+    85: "otros",        # digest de Substack (decisión de la usuaria)
     86: "trabajo",
     87: "promociones",
     88: "trabajo",
     89: "promociones",
-    90: "avisos",       # digest de LeetCode, suscrito a propósito
+    90: "otros",        # digest de LeetCode (decisión de la usuaria)
     91: "promociones",
     92: "personal",     # una persona real comparte una carpeta familiar
-    93: "avisos",       # encuesta de satisfacción
+    93: "compras",      # encuesta post-compra, igual que la reseña de Fnac
     94: "trabajo",
     95: "compras",      # entradas de cine reenviadas
     96: "compras",
@@ -86,7 +86,7 @@ ETIQUETAS = {
     102: "avisos",
     103: "promociones",
     104: "promociones",
-    105: "avisos",
+    105: "otros",       # digest de LeetCode
     106: "promociones",
     107: "promociones",
     108: "trabajo",
@@ -97,7 +97,7 @@ ETIQUETAS = {
     113: "promociones",
     114: "avisos",
     115: "trabajo",
-    116: "avisos",
+    116: "otros",       # digest de Substack
     117: "promociones",
     118: "promociones",
     119: "avisos",
@@ -108,15 +108,9 @@ ETIQUETAS = {
 # que la usuaria los revise primero: son los que más valor tiene aclarar,
 # porque su respuesta debería acabar en el propio ADR.
 DUDOSOS = {
-    66: "¿un trámite con la administración es 'banco'? La definición dice "
-        "'trámites', pero suena raro",
-    83: "petición de reseña tras comprar: ¿avisos o compras?",
-    85: "digest de Substack al que te suscribiste: el ADR mete 'newsletters' "
-        "en promociones, pero dice 'no solicitadas'",
-    90: "mismo caso que Substack",
-    92: "una persona real, pero llega como notificación automática de Drive",
-    95: "te lo reenviaste tú: ¿personal por remitente o compras por contenido?",
-    116: "mismo caso que Substack",
+    66: "resuelto como 'banco' porque su definición incluye 'trámites'. "
+        "Reabrir si algún día se crea una categoría propia para gestiones "
+        "con la administración",
 }
 
 
