@@ -1,12 +1,21 @@
 """
-Genera evaluation/labels.json a partir de las etiquetas propuestas a mano.
+Genera evaluation/labels.json a partir de las etiquetas puestas a mano.
 
-Las etiquetas de este archivo son PROPUESTAS, no verdad absoluta. La usuaria
-debe revisarlas: es su bandeja y su criterio el que define qué es correcto.
-Editar directamente evaluation/labels.json; este script solo lo crea la
-primera vez y no sobrescribe si ya existe.
+Dos conjuntos separados, y la separación importa:
+
+- dev  (80 correos): el que se usa para AFINAR el prompt. Se mira, se estudia,
+  se itera sobre sus fallos.
+- test (80 correos): el que se usa para COMPROBAR. No se mira al diseñar
+  prompts. Si se afina mirando sus fallos, deja de servir para medir.
+
+Sin esta separación, ajustar el prompt sobre los mismos correos con los que se
+mide infla el resultado: el prompt aprende esos casos concretos en vez de la
+regla general. Se llama sobreajuste al conjunto de evaluación.
+
+Las etiquetas son PROPUESTAS. La usuaria decide: es su bandeja y su criterio.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -20,8 +29,10 @@ from mailpilot.models import Email
 
 SALIDA = Path(__file__).resolve().parents[1] / "evaluation" / "labels.json"
 
-# id de la tabla emails -> categoría correcta
-ETIQUETAS = {
+# --------------------------------------------------------------------------
+# dev: sobre estos se afinó el prompt v2. Su 87,5% está inflado.
+# --------------------------------------------------------------------------
+DEV = {
     1: "avisos",        # Goodreads, resumen social automático
     2: "banco",
     3: "promociones",
@@ -64,7 +75,7 @@ ETIQUETAS = {
     80: "promociones",  # onboarding comercial de Docker
     81: "avisos",       # código de un solo uso
     82: "avisos",
-    83: "compras",      # petición de reseña tras una compra (decisión de la usuaria)
+    83: "compras",      # reseña tras una compra (decisión de la usuaria)
     84: "avisos",
     85: "otros",        # digest de Substack (decisión de la usuaria)
     86: "trabajo",
@@ -104,37 +115,136 @@ ETIQUETAS = {
     120: "avisos",
 }
 
-# Casos donde la definición del ADR 001 no decide claramente. Se marcan para
-# que la usuaria los revise primero: son los que más valor tiene aclarar,
-# porque su respuesta debería acabar en el propio ADR.
+# --------------------------------------------------------------------------
+# test: etiquetado SIN mirar los fallos del modelo. Es la medida honesta.
+# --------------------------------------------------------------------------
+TEST = {
+    121: "trabajo",
+    122: "promociones",
+    123: "avisos",      # aviso de que un servicio se retira
+    204: "avisos",
+    205: "avisos",      # Goodreads sobre tu actividad de lectura
+    206: "personal",    # Lucía comparte una página de Notion
+    207: "avisos",
+    208: "avisos",
+    209: "promociones",
+    210: "otros",
+    211: "avisos",
+    212: "promociones",
+    213: "promociones",
+    214: "promociones",
+    215: "avisos",
+    216: "avisos",
+    217: "avisos",      # verificación de identidad de AWS
+    218: "avisos",      # inicio de sesión
+    219: "avisos",
+    220: "promociones",
+    221: "avisos",
+    222: "avisos",
+    223: "banco",       # documentación previa a una firma
+    224: "promociones",
+    225: "compras",     # encuesta de Fnac sobre una compra
+    226: "promociones",
+    227: "avisos",
+    228: "avisos",
+    229: "trabajo",
+    230: "avisos",
+    231: "promociones",
+    232: "banco",       # el banco avisando de una estafa
+    233: "trabajo",
+    234: "trabajo",
+    235: "avisos",
+    236: "avisos",
+    237: "personal",
+    238: "promociones",
+    239: "promociones",
+    240: "trabajo",
+    241: "promociones",
+    242: "banco",       # trámite de la tarjeta del Bono Cultural
+    243: "promociones",
+    244: "trabajo",
+    245: "personal",
+    246: "banco",
+    247: "personal",
+    248: "avisos",      # código de un solo uso
+    249: "avisos",
+    250: "avisos",
+    251: "avisos",      # inicio de sesión en Apple
+    252: "otros",
+    253: "avisos",      # cambio de términos
+    254: "promociones",
+    255: "promociones",
+    256: "promociones",
+    257: "promociones",
+    258: "trabajo",
+    259: "promociones",  # onboarding comercial de Kaggle
+    260: "avisos",       # código de InfoJobs
+    261: "trabajo",
+    262: "banco",        # Mónica reenvía una notificación del BBVA
+    263: "avisos",
+    264: "avisos",
+    265: "avisos",
+    266: "personal",     # correo de la usuaria a sí misma
+    267: "promociones",
+    268: "promociones",
+    269: "promociones",
+    270: "promociones",
+    271: "promociones",
+    272: "avisos",       # código de acceso de Inditex
+    273: "banco",
+    274: "avisos",
+    275: "avisos",
+    276: "promociones",
+    277: "promociones",  # BBVA vendiendo un producto
+    278: "avisos",
+    279: "promociones",
+    280: "promociones",  # boletín de una fundación
+}
+
+# Casos donde la definición del ADR 001 no decide con claridad.
 DUDOSOS = {
     66: "resuelto como 'banco' porque su definición incluye 'trámites'. "
-        "Reabrir si algún día se crea una categoría propia para gestiones "
-        "con la administración",
+        "Reabrir si se crea una categoría propia para gestiones",
+    242: "instrucciones sobre la tarjeta del Bono Cultural: ¿'banco' por ser "
+         "un trámite, o 'promociones' como el otro correo del mismo emisor?",
+    262: "una persona real reenvía una notificación del banco. Puesto en "
+         "'banco' por contenido, siguiendo el criterio de las entradas de "
+         "Cinesa reenviadas. ¿O 'personal' por remitente?",
+    266: "correo de la usuaria a sí misma, sin extracto. Imposible de "
+         "clasificar por asunto",
 }
 
 
 def main():
-    if SALIDA.exists():
-        print(f"{SALIDA} ya existe. No lo sobrescribo.")
-        print("Edítalo a mano si quieres cambiar etiquetas.")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--force", action="store_true", help="regenerar aunque el archivo exista"
+    )
+    args = parser.parse_args()
+
+    if SALIDA.exists() and not args.force:
+        print(f"{SALIDA} ya existe. Usa --force para regenerarlo.")
         return
 
     SALIDA.parent.mkdir(exist_ok=True)
+    todas = {**{k: ("dev", v) for k, v in DEV.items()},
+             **{k: ("test", v) for k, v in TEST.items()}}
 
     with SessionLocal() as session:
         emails = session.execute(select(Email).order_by(Email.id)).scalars().all()
 
         registros = []
         for email in emails:
-            if email.id not in ETIQUETAS:
+            if email.id not in todas:
                 continue
+            split, categoria = todas[email.id]
             registro = {
                 "email_id": email.id,
+                "split": split,
                 "gmail_message_id": email.gmail_message_id,
                 "sender": email.sender,
                 "subject": email.subject,
-                "expected": ETIQUETAS[email.id],
+                "expected": categoria,
             }
             if email.id in DUDOSOS:
                 registro["revisar"] = DUDOSOS[email.id]
@@ -142,8 +252,14 @@ def main():
 
     SALIDA.write_text(json.dumps(registros, indent=2, ensure_ascii=False) + "\n")
 
+    por_split = {}
+    for r in registros:
+        por_split[r["split"]] = por_split.get(r["split"], 0) + 1
+
     print(f"{len(registros)} etiquetas escritas en {SALIDA}")
-    print(f"{len(DUDOSOS)} marcadas como dudosas para revisar")
+    for split, n in sorted(por_split.items()):
+        print(f"  {split}: {n}")
+    print(f"{len(DUDOSOS)} marcadas para revisar")
 
 
 if __name__ == "__main__":

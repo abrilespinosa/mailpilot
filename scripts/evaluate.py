@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sqlalchemy import select  # noqa: F401  (usado por SessionLocal más abajo)
 
-from mailpilot.classifier import OllamaClient, classify_email
+from mailpilot.classifier import PROMPT_VERSION, OllamaClient, classify_email
 from mailpilot.db import SessionLocal
 from mailpilot.gmail import EmailData
 from mailpilot.models import Email
@@ -124,8 +124,11 @@ def informe(resultados: list[dict], fallos_validacion: int = 0) -> float:
     return precision
 
 
-def cargar_etiquetas() -> list[dict]:
-    return json.loads(LABELS.read_text())
+def cargar_etiquetas(split: str | None = None) -> list[dict]:
+    etiquetas = json.loads(LABELS.read_text())
+    if split:
+        etiquetas = [e for e in etiquetas if e.get("split") == split]
+    return etiquetas
 
 
 def guardar(nombre: str, modelo: str, resultados: list[dict], precision: float) -> Path:
@@ -136,6 +139,7 @@ def guardar(nombre: str, modelo: str, resultados: list[dict], precision: float) 
             {
                 "name": nombre,
                 "model": modelo,
+                "prompt_version": PROMPT_VERSION,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "accuracy": precision,
                 "correct": sum(1 for r in resultados if r["correct"]),
@@ -182,15 +186,16 @@ def rescore(nombre: str) -> None:
     print(f"  actualizado {origen}")
 
 
-def ejecutar(nombre: str, limite: int | None) -> None:
-    etiquetas = cargar_etiquetas()
+def ejecutar(nombre: str, limite: int | None, split: str | None, modelo: str | None) -> None:
+    etiquetas = cargar_etiquetas(split)
     if limite:
         etiquetas = etiquetas[:limite]
 
-    client = OllamaClient()
+    client = OllamaClient(model=modelo) if modelo else OllamaClient()
     print(f"Ejecución: {nombre}")
     print(f"Modelo:    {client.model}")
-    print(f"Correos:   {len(etiquetas)}\n")
+    print(f"Prompt:    {PROMPT_VERSION}")
+    print(f"Conjunto:  {split or 'todos'} ({len(etiquetas)} correos)\n")
 
     resultados = []
     fallos_validacion = 0
@@ -243,6 +248,12 @@ def main():
     parser.add_argument("--name", help="nombre de esta ejecución")
     parser.add_argument("--limit", type=int, help="usar solo los N primeros")
     parser.add_argument(
+        "--split",
+        choices=["dev", "test"],
+        help="dev para afinar el prompt, test para medir de verdad",
+    )
+    parser.add_argument("--model", help="modelo de Ollama (por defecto, el de .env)")
+    parser.add_argument(
         "--rescore", help="repuntuar una ejecución guardada con las etiquetas actuales"
     )
     args = parser.parse_args()
@@ -250,7 +261,7 @@ def main():
     if args.rescore:
         rescore(args.rescore)
     elif args.name:
-        ejecutar(args.name, args.limit)
+        ejecutar(args.name, args.limit, args.split, args.model)
     else:
         parser.error("hace falta --name o --rescore")
 

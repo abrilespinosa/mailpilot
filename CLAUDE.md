@@ -122,12 +122,31 @@ regenerar una propuesta nueva.
       (`evaluation/labels.json`, gitignored: contiene datos reales). `scripts/evaluate.py`
       mide acierto, matriz de confusión y calibración; `--rescore` repuntúa una ejecución
       guardada sin repetir la inferencia.
-      Medido con `qwen3:8b`: prompt v1 **50,0%**, prompt v2 **87,5%**.
-      **Pendiente**: (a) reservar un conjunto de prueba que no se use para afinar el prompt
-      — ahora mismo se está midiendo sobre los mismos correos con los que se ajusta;
-      (b) comparar contra un segundo modelo.
-      **Resultado firme**: la confianza NO sirve como umbral (0,953 en aciertos frente a
-      0,920 en fallos). Pedirle al modelo que se calibre empeoró la separación.
+      160 correos etiquetados, partidos en `dev` (80, para afinar) y `test` (80, nunca
+      usados al escribir prompts). `--split` elige conjunto, `--model` compara modelos.
+
+      | | dev | test |
+      |---|---|---|
+      | qwen3:8b prompt v1 | 50,0% | — |
+      | qwen3:8b prompt v2 | 87,5% | **70,0%** |
+      | llama3.1:8b prompt v2 | — | **73,8%** |
+
+      **Sobreajuste medido**: 17,5 puntos entre dev y test. El 87,5% era espejismo.
+
+      **Modelo elegido: `qwen3:8b`**, pese a acertar menos que llama3.1. llama falla
+      `personal` 0 de 5 (los manda todos a `otros`); qwen acierta 3 de 5. Perder correos
+      de personas reales es mucho peor que confundir una promoción, así que el acierto
+      global no es el criterio.
+
+      **La confianza NO sirve como umbral**: separación entre aciertos y fallos de +0,042
+      (qwen) y +0,006 (llama). Pedirle al modelo que se calibre la empeoró. La Fase 7 no
+      puede auto-aprobar por confianza.
+
+      **Structured output robusto**: 0 fallos de validación en 240 clasificaciones, con
+      dos familias de modelo distintas.
+
+      **Pendiente**: `otros` mezcla "boletín suscrito" con "la IA duda", y absorbe la mitad
+      de los fallos de los dos modelos. Hay que separarlo antes de la Fase 7.
 - [ ] Fase 7 — Sistema de propuestas
 - [ ] Fase 8 — Human-in-the-loop (frontend)
 - [ ] Fase 9 — Gmail Actions (categorizar, mover a papelera)
