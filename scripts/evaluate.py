@@ -249,8 +249,8 @@ def main():
     parser.add_argument("--limit", type=int, help="usar solo los N primeros")
     parser.add_argument(
         "--split",
-        choices=["dev", "test"],
-        help="dev para afinar el prompt, test para medir de verdad",
+        choices=["dev", "test", "test2"],
+        help="dev para afinar; test quemado (v3/v4 se escribieron viéndolo); test2 limpio",
     )
     parser.add_argument("--model", help="modelo de Ollama (por defecto, el de .env)")
     parser.add_argument(

@@ -148,10 +148,17 @@ regenerar una propuesta nueva.
       **Structured output robusto**: 0 fallos de validación en ~500 clasificaciones, con
       dos familias de modelo.
 
-      **AVISO — el conjunto `test` ya no es limpio**: los prompts v3 y v4 se escribieron
-      mirando sus fallos, así que el 92,5% está inflado. Para una medición honesta hace
-      falta ingerir correos nuevos, etiquetarlos a ciegas y medir UNA sola vez.
-      De los 6 fallos restantes, 4 son etiquetas discutibles más que errores del modelo.
+      **NÚMERO HONESTO: 73,8%** (`test2`, 80 correos nuevos etiquetados a ciegas, medidos
+      una sola vez con el prompt v4). El 92,5% de `test` estaba inflado 18,7 puntos porque
+      los prompts v3 y v4 se escribieron mirando sus fallos.
+
+      `test2` sigue limpio: no se ha tocado el prompt después de medirlo. En cuanto se
+      toque, hace falta un `test3`.
+
+      **Fallo principal, y es de generalización**: 6 de los 21 errores son ofertas de
+      trabajo remunerado de una agencia de casting. El prompt tiene ejemplos de portales
+      de empleo (InfoJobs, Yobalia) y aprendió "portal de empleo → trabajo" en vez de
+      "te ofrecen trabajo pagado → trabajo". Con un remitente nuevo, falla.
 
 - [ ] Fase 7 — Sistema de propuestas
 - [ ] Fase 8 — Human-in-the-loop (frontend)
