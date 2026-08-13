@@ -1,2 +1,6 @@
 google-auth-oauthlib==1.2.1
 google-api-python-client==2.149.0
+SQLAlchemy==2.0.52
+alembic==1.19.1
+psycopg[binary]==3.3.4
+python-dotenv==1.2.2

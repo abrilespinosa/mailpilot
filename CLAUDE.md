@@ -102,10 +102,13 @@ regenerar una propuesta nueva.
       `src/mailpilot/auth.py` gestiona el flujo. Token guardado localmente en
       `credentials/token.json` (gitignored). Verificado: `scripts/test_auth.py` lista los
       últimos 5 correos correctamente.
-- [ ] Fase 2 — Ingestión de datos (Gmail → parsing → PostgreSQL). **Siguiente paso.** Se
-      levantará PostgreSQL vía Docker Compose.
-- [ ] Fase 3 — Modelo de datos formal con SQLAlchemy + Alembic
-- [ ] Fase 4 — Backend con FastAPI
+- [x] Fase 2 — Ingestión de datos (Gmail → parsing → PostgreSQL). `src/mailpilot/gmail.py`
+      lista IDs con paginación y descarga cada correo con `format='metadata'` (sin cuerpo).
+      `src/mailpilot/repository.py` hace el upsert idempotente. Verificado:
+      `scripts/ingest.py` dos veces seguidas deja 20 correos, no 40.
+- [x] Fase 3 — Modelo de datos formal con SQLAlchemy + Alembic. Cuatro tablas en
+      `src/mailpilot/models.py`, migración inicial aplicada. PostgreSQL 17 en Docker.
+- [ ] Fase 4 — Backend con FastAPI. **Siguiente paso.**
 - [ ] Fase 5 — IA local con Ollama
 - [ ] Fase 6 — Evaluación de modelos
 - [ ] Fase 7 — Sistema de propuestas
@@ -123,10 +126,33 @@ el código se importa vía manipulación de `sys.path` (ver más abajo).
 ```bash
 source venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env          # y rellenar con credenciales reales
 
-# Verificar OAuth + listar los últimos 5 correos (abre el navegador la primera vez)
-python scripts/test_auth.py
+# Base de datos
+docker compose up -d          # levantar PostgreSQL
+docker compose ps             # ver estado (debe poner "healthy")
+docker compose down           # parar, conservando los datos
+docker compose down -v        # parar Y BORRAR los datos del volumen
+
+# Migraciones
+alembic upgrade head                                  # aplicar migraciones
+alembic revision --autogenerate -m "descripción"      # generar tras cambiar models.py
+alembic downgrade -1                                  # deshacer la última
+alembic current                                       # en qué versión está la BD
+
+# Scripts de prueba manual
+python scripts/test_auth.py   # verificar OAuth (abre el navegador la primera vez)
+python scripts/list_emails.py # leer correos e imprimirlos, sin tocar la BD
+python scripts/ingest.py      # ingestión completa: Gmail → PostgreSQL
+
+# Consultar la base de datos
+docker compose exec db psql -U mailpilot -d mailpilot
 ```
+
+**El puerto en el host es el 5433, no el 5432**: la máquina de desarrollo tiene un
+PostgreSQL nativo ocupando el 5432. Dentro del contenedor sigue siendo el 5432. Al
+conectar con TablePlus/DBeaver hay que usar 5433, o se acaba en la base de datos
+equivocada y parece que la ingestión no guarda nada.
 
 Aún no hay tests automatizados, linter ni formateador configurados. `pytest` está en el
 stack previsto pero no instalado. Cuando se añadan (Fase 10), documentar aquí el comando
@@ -161,8 +187,17 @@ problema → solución → alternativa → coste → beneficio antes de añadirs
 ```
 mailpilot/
 ├── src/mailpilot/       # código de la aplicación
-│   └── auth.py          # gestión de credenciales OAuth (único módulo que toca credentials/)
+│   ├── auth.py          # credenciales OAuth (único módulo que toca credentials/)
+│   ├── gmail.py         # lectura de la Gmail API → EmailData
+│   ├── db.py            # engine y sesiones (único que lee DATABASE_URL)
+│   ├── models.py        # las cuatro tablas + los enums cerrados
+│   └── repository.py    # guardado idempotente (upsert)
+├── migrations/           # Alembic: env.py + versions/
 ├── scripts/              # scripts de prueba manual, no parte del producto
+├── docker-compose.yml    # PostgreSQL 17, publicado en el puerto 5433 del host
+├── alembic.ini           # sqlalchemy.url vacío a propósito, la pone env.py desde .env
+├── .env                  # NUNCA versionar — credenciales de la base de datos
+├── .env.example          # plantilla sin secretos, esta sí se versiona
 ├── credentials/           # NUNCA versionar (gitignored y verificado) — client_secret.json, token.json
 ├── docs/decisions/        # ADRs. 001 = categorías de clasificación
 │                          # (architecture.md y threat-model.md, pendientes)
