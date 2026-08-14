@@ -236,3 +236,43 @@ Invalida la comparación con las medidas anteriores en lo que toca a `personal`.
 `test3` (82,1 %) se midió con la definición vieja; el número global sigue siendo
 válido como foto de aquel momento, pero no es comparable con lo que se mida a
 partir de ahora en esa categoría.
+
+## Revisión 2026-08-14 (2) — notas para uno mismo: manda la forma, no el tema
+
+La revisión anterior quitó la regla "los correos que la usuaria se envía a sí
+misma son personal" y la sustituyó por "se clasifican por su asunto". Se hizo
+generalizando desde UN ejemplo, y salió mal: en `test4` el modelo mandó `cv` a
+`trabajo` e `imprimir vinted` a `compras`, y `personal` cayó a 1/6.
+
+Con las 14 etiquetas disponibles el patrón es otro:
+
+| la usuaria dice | asuntos |
+|---|---|
+| `personal` (8) | `matricula`, `Imprimir martes`, `autorizacionn`, `cv`, `cv mejorado`, `(sin asunto)`, `imprimir vinted` x2 |
+| `tramites` (3) | `Re: [#21317373] Autorizaciones`, `Autorización Volante - ABRIL ESPINOSA TORTUERO`, `Retraso en la emisión de tarjeta virtual` |
+
+`autorizacionn` es `personal` y `Autorización Volante - ABRIL ESPINOSA
+TORTUERO` es `tramites`. **Mismo tema, etiquetas opuestas.** Lo que los separa
+no es de qué van, es si lo escribió ella de carrerilla o es un papel oficial.
+
+### Regla
+
+> Un correo que la usuaria se manda a sí misma, o que le reenvían, se clasifica
+> por su CONTENIDO. Pero si es una NOTA suya —asunto telegráfico, en
+> minúsculas, con erratas, o sin asunto— es `personal`: es un recordatorio de
+> su vida, no documentación. Solo cuando lleva documentación real (expedientes,
+> autorizaciones formales, redacción institucional) manda esa categoría.
+
+### Regla derivada sobre `compras`
+
+`compras` exige que la compra la hiciera **ella**. Una reserva que hizo otra
+persona y le reenvía no es `compras`: si es un plan familiar, es `personal`.
+Esto salió del "Fwd: Nueva Reserva EL TESORO DE LA MOMIA" que le reenvía su
+madre.
+
+### Lección de método
+
+Las dos veces que se ha roto `personal` en este proyecto (v3 y v6) ha sido por
+escribir una regla desde un solo ejemplo. Esta se apoya en 14 y los reproduce
+todos. No es garantía, pero la diferencia de base empírica es de un orden de
+magnitud.

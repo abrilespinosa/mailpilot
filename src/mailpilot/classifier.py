@@ -50,10 +50,21 @@ class ClassificationResult(BaseModel):
 
 # Versión del prompt. Se guarda en los resultados de evaluación para poder
 # comparar mediciones: sin esto, un número suelto no dice contra qué se midió.
-PROMPT_VERSION = "v6"
+PROMPT_VERSION = "v7"
 
 # Las definiciones salen del ADR 001. Si cambian allí, hay que cambiarlas
 # aquí: son la especificación que lee el modelo.
+#
+# v7, tras la comparación CONTROLADA v5 vs v6 sobre el mismo conjunto (test4):
+#   v5 80,0% / v6 78,8%. El v6 no fue una mejora, y su único destrozo real
+#   fue quitar la regla de los correos a uno mismo: perdió 'cv' y '(sin
+#   asunto)'. Lo hice generalizando desde UN ejemplo ('Autorizaciones'), el
+#   mismo error que hundió el v3.
+#   Con 14 ejemplos etiquetados a la vista, la frontera no es el TEMA sino la
+#   FORMA: 'autorizacionn' (nota) es personal y 'Autorización Volante -
+#   ABRIL ESPINOSA' (documento) es tramites. Regla 2 nueva; reproduce 14/14.
+#   Se conservan las mejoras del v6 en avisos, que sí ganaron dos correos.
+#   'compras' pasa a exigir que la compra la hiciera ELLA.
 #
 # v6, tras medir test3 a ciegas (82,1%) y revisar 158 correos reales:
 # - "personal" era la peor categoría (3/7) y NO era culpa del modelo. El
@@ -107,7 +118,7 @@ CATEGORÍAS:
   igual quién lo mande: un portal de empleo, una agencia, o una empresa
   escribiéndote directamente. Vacantes, castings, eventos pagados,
   colaboraciones retribuidas, inscripciones a puestos, prácticas
-- compras: algo que la usuaria compró o contrató. Confirmaciones de pedido,
+- compras: algo que LA USUARIA compró o contrató (no otra persona). Confirmaciones de pedido,
   entradas, tickets, comprobantes de pago, envíos, devoluciones, y encuestas
   sobre una compra concreta
 - tramites: gestiones y papeleo. Bancos (extractos, movimientos, tarjetas,
@@ -136,30 +147,40 @@ REGLAS, EN ORDEN DE PRIORIDAD:
    Google Drive)" son personas, no plataformas.
    EXCEPCIÓN: si esa persona te REENVÍA un correo de otro, clasifícalo por su
    CONTENIDO, no por quién lo reenvía. Reenviar no es escribirte.
-   Los correos que la usuaria SE ENVÍA A SÍ MISMA se clasifican por su ASUNTO
-   como cualquier otro; no son "personal" por defecto.
-2. Si te ofrecen TRABAJO REMUNERADO o es una gestión de tu empleo, es
+2. NOTAS PARA UNO MISMO: un correo que la usuaria se manda A SÍ MISMA, o que
+   le reenvían, se clasifica por su CONTENIDO. Pero distingue dos cosas:
+   - Es una NOTA suya si el asunto es telegráfico, en minúsculas, con erratas,
+     o no hay asunto: "matricula", "cv", "imprimir vinted", "Imprimir martes",
+     "autorizacionn". Eso es un recordatorio de su vida -> "personal".
+   - Es DOCUMENTACIÓN si el asunto es formal: números de expediente, títulos en
+     mayúsculas, redacción institucional: "Re: [#21317373] Autorizaciones",
+     "Autorización Volante - NOMBRE APELLIDOS", "Aquí tienes el detalle de la
+     operación". Entonces manda el contenido -> normalmente "tramites".
+   Lo que separa los dos casos es la FORMA, no el tema: "autorizacionn" escrito
+   de carrerilla es "personal" y "Autorización Volante - ABRIL ESPINOSA" es
+   "tramites", aunque hablen de lo mismo.
+3. Si te ofrecen TRABAJO REMUNERADO o es una gestión de tu empleo, es
    "trabajo". No importa el remitente: un portal, una agencia de casting, o
    una empresa directamente. Vale AUNQUE use la palabra "ofertas" (en español
    significa tanto descuentos como vacantes) y AUNQUE hable de un "evento":
    si te pagan por ir, es trabajo, no publicidad.
-3. Si es transaccional o sobre tu cuenta (código, contraseña, verificación,
+4. Si es transaccional o sobre tu cuenta (código, contraseña, verificación,
    seguridad, alta, términos de uso), es "avisos" AUNQUE lo envíe una marca
    comercial.
-4. Si se refiere a una compra concreta que la usuaria hizo, es "compras",
+5. Si se refiere a una compra concreta que la usuaria hizo, es "compras",
    incluidas las encuestas de satisfacción posteriores.
-5. Entre "tramites" y "avisos" gana "tramites" cuando hay dinero, papeleo o
+6. Entre "tramites" y "avisos" gana "tramites" cuando hay dinero, papeleo o
    una gestión de por medio.
-6. Si una PLATAFORMA te habla de CONTENIDO (libros, artículos, retos,
+7. Si una PLATAFORMA te habla de CONTENIDO (libros, artículos, retos,
    novedades editoriales, resúmenes de lo que leen otros usuarios) es
    "otros". Si te habla de TU CUENTA (acceso, seguridad, configuración) es
    "avisos". El mismo remitente manda las dos cosas. Esta regla NO se
    aplica cuando detrás hay una persona concreta: eso es la regla 1.
-7. Una notificación de una plataforma sobre tu actividad dentro de ella es
+8. Una notificación de una plataforma sobre tu actividad dentro de ella es
    "avisos", NUNCA "otros": menciones, logros, insignias, reacciones a lo que
    publicas, y el estado de una solicitud o registro que hiciste.
-8. Publicidad sin relación con una compra concreta es "promociones".
-9. Si sigues dudando, "otros".
+9. Publicidad sin relación con una compra concreta es "promociones".
+10. Si sigues dudando, "otros".
 
 EJEMPLOS:
 - "Resumen de ofertas diarias" de un portal de empleo -> trabajo
@@ -182,6 +203,9 @@ EJEMPLOS:
 - "Hemos recibido tu solicitud" -> avisos
 - "Mónica (vía Google Drive) ha compartido una carpeta" -> personal
 - "Recordatorio cita" de una óptica o clínica -> personal
+- "cv", "imprimir vinted", "matricula", sin asunto, mandado por ella misma -> personal
+- "Autorización Volante - ABRIL ESPINOSA TORTUERO", mandado por ella misma -> tramites
+- "Fwd: Nueva Reserva", una reserva que hizo su madre -> personal (no la compró ella)
 - "Resultados de tu analítica disponibles" -> personal
 - "Factura de tu seguro de salud" -> tramites
 - "Re: [#21317373] Autorizaciones", enviado por ti misma -> tramites
