@@ -18,6 +18,9 @@ from mailpilot.models import (
     Category,
     Classification,
     Email,
+    GmailAction,
+    GmailActionStatus,
+    GmailActionType,
     ProposalStatus,
     ProposedAction,
 )
@@ -299,6 +302,12 @@ def decidir_propuesta(
     propuesta.status = decision
     propuesta.decided_at = datetime.now(timezone.utc)
 
+    # Aceptar o corregir una categoría es pedir que se etiquete en Gmail:
+    # `categorize` era justo la acción propuesta. Rechazar no encola nada,
+    # porque rechazar significa "no apliques nada".
+    if propuesta.final_category is not None:
+        _encolar_etiqueta(session, propuesta)
+
     session.add(
         AuditLog(
             action_proposal_id=propuesta.id,
@@ -322,6 +331,117 @@ def decidir_propuesta(
     session.commit()
 
     return propuesta
+
+
+def _encolar_etiqueta(session: Session, propuesta: ActionProposal) -> None:
+    """
+    Deja pedida la etiqueta que corresponde a la decisión de la usuaria.
+
+    No ejecuta nada: solo escribe una fila `pending`. Entre decidir y que Gmail
+    cambie hay un paso más, deliberado, para que se pueda ver qué está a punto
+    de pasar antes de que pase.
+
+    Si al rectificar ya había una petición pendiente, se reaprovecha en vez de
+    encolar otra: lo que importa es la categoría final, y esa se lee de la
+    propuesta en el momento de ejecutar.
+    """
+    ya = session.execute(
+        select(GmailAction).where(
+            GmailAction.email_id == propuesta.email_id,
+            GmailAction.action == GmailActionType.APPLY_LABEL,
+            GmailAction.status == GmailActionStatus.PENDING,
+        )
+    ).scalar_one_or_none()
+
+    if ya is not None:
+        ya.action_proposal_id = propuesta.id
+        return
+
+    session.add(
+        GmailAction(
+            email_id=propuesta.email_id,
+            action=GmailActionType.APPLY_LABEL,
+            action_proposal_id=propuesta.id,
+            status=GmailActionStatus.PENDING,
+        )
+    )
+
+
+def encolar_accion(
+    session: Session,
+    email_id: int,
+    accion: GmailActionType,
+    proposal_id: int | None = None,
+) -> GmailAction | None:
+    """
+    Pide una acción sobre Gmail. Devuelve la fila, o None si ya estaba pedida.
+
+    Crear la fila ES la autorización: no hay estado de "esperando permiso"
+    porque nada crea filas por su cuenta. Ni el clasificador ni ningún proceso
+    automático llaman aquí.
+
+    Devolver None en vez de fallar cuando ya existe una pendiente es
+    deliberado: dos clics seguidos en "a la papelera" no son un error de la
+    usuaria, y el índice único parcial ya impide el duplicado en la base de
+    datos. Aquí solo evitamos el golpe.
+    """
+    ya = session.execute(
+        select(GmailAction).where(
+            GmailAction.email_id == email_id,
+            GmailAction.action == accion,
+            GmailAction.status == GmailActionStatus.PENDING,
+        )
+    ).scalar_one_or_none()
+
+    if ya is not None:
+        return None
+
+    fila = GmailAction(
+        email_id=email_id,
+        action=accion,
+        action_proposal_id=proposal_id,
+        status=GmailActionStatus.PENDING,
+    )
+    session.add(fila)
+    session.add(
+        AuditLog(
+            email_id=email_id,
+            action_proposal_id=proposal_id,
+            event_type="gmail_action_requested",
+            detail={"accion": accion.value},
+        )
+    )
+    session.commit()
+
+    return fila
+
+
+def acciones_pendientes(session: Session, limit: int = 50) -> list[GmailAction]:
+    """Acciones pedidas y todavía sin ejecutar, en el orden en que se pidieron."""
+    return list(
+        session.execute(
+            select(GmailAction)
+            .where(GmailAction.status == GmailActionStatus.PENDING)
+            .order_by(GmailAction.id)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def contar_acciones(session: Session) -> dict:
+    """Cuántas acciones hay en cada estado, para la cabecera del dashboard."""
+    filas = session.execute(
+        select(GmailAction.status, func.count()).group_by(GmailAction.status)
+    ).all()
+    conteo = {estado: total for estado, total in filas}
+
+    return {
+        "pendientes": conteo.get(GmailActionStatus.PENDING, 0),
+        "ejecutadas": conteo.get(GmailActionStatus.EXECUTED, 0),
+        "fallidas": conteo.get(GmailActionStatus.FAILED, 0),
+    }
 
 
 def propuestas_decididas(session: Session, limit: int = 20, offset: int = 0):
@@ -393,6 +513,12 @@ def rectificar_decision(
         )
 
     propuesta.decided_at = datetime.now(timezone.utc)
+
+    # Rectificar cambia la etiqueta que hay que poner en Gmail. Si ya se aplicó
+    # la anterior, `aplicar_etiqueta` quita las demás MailPilot/* al poner esta,
+    # así que el correo no acaba con dos.
+    if propuesta.final_category is not None:
+        _encolar_etiqueta(session, propuesta)
 
     session.add(
         AuditLog(

@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from mailpilot.db import get_session
 from mailpilot.models import ActionProposal, Category, ProposalStatus
 from mailpilot.repository import (
+    contar_acciones,
     estadisticas,
     propuestas_decididas,
     propuestas_pendientes,
@@ -115,6 +116,7 @@ def dashboard(
             "limit": limit,
             "categorias": list(Category),
             "stats": estadisticas(session),
+            "acciones": contar_acciones(session),
             "ciego": ciego,
             "vista": "pendientes",
             "logo": buscar_asset("logo"),
@@ -160,6 +162,7 @@ def decididas(
             "limit": limit,
             "categorias": list(Category),
             "stats": estadisticas(session),
+            "acciones": contar_acciones(session),
             "ciego": False,
             "vista": "decididas",
             "logo": buscar_asset("logo"),

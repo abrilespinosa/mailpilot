@@ -130,6 +130,32 @@
     .paginacion { display: flex; gap: 1.25rem; align-items: center; justify-content: center;
                   color: var(--suave); font-size: .85rem; margin-top: 1.5rem; }
     .paginacion a { color: var(--acento); }
+    /* La papelera se separa de los chips con una línea: son dos preguntas
+       distintas y la interfaz tiene que decirlo sin que nadie lo explique. */
+    .papelera-fila {
+      display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+      margin-top: .85rem; padding-top: .75rem; border-top: 1px solid var(--borde);
+    }
+    .papelera {
+      font: inherit; font-size: .82rem; cursor: pointer;
+      padding: .3rem .7rem; border-radius: 6px;
+      border: 1px solid var(--borde); background: transparent; color: var(--suave);
+    }
+    .papelera:hover { border-color: var(--no); color: var(--no); }
+    .papelera.pedida { border-color: var(--no); color: var(--no); font-weight: 600; }
+    .papelera-nota { font-size: .76rem; color: var(--suave); }
+    .barra-acciones {
+      display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+      background: var(--tarjeta); border: 1px solid var(--acento);
+      border-radius: 10px; padding: .85rem 1.15rem; margin-bottom: 1.25rem;
+    }
+    .barra-acciones b { color: var(--acento); }
+    .ejecutar {
+      font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+      padding: .45rem 1rem; border-radius: 8px; border: none;
+      background: var(--acento); color: #fff; margin-left: auto;
+    }
+    .ejecutar:disabled { opacity: .55; cursor: default; }
     .modo-ciego {
       background: var(--tarjeta); border: 1px dashed var(--acento);
       border-radius: 10px; padding: .8rem 1.1rem; margin-bottom: 1.5rem; font-size: .87rem;
@@ -182,6 +208,23 @@
     </div>
   {% endif %}
 
+  {# La cola de acciones. Es lo que separa "he decidido" de "Gmail ha
+     cambiado": mientras estén aquí, todavía no ha pasado nada en tu cuenta. #}
+  {% if acciones.pendientes and not ciego %}
+    <div class="barra-acciones">
+      <span>
+        <b>{{ acciones.pendientes }}</b> acciones esperando.
+        Todavía <b>no</b> ha cambiado nada en Gmail.
+      </span>
+      <button class="ejecutar" id="ejecutar">Aplicar en Gmail</button>
+    </div>
+  {% endif %}
+  {% if acciones.fallidas %}
+    <div class="barra-acciones" style="border-color: var(--no)">
+      <span>{{ acciones.fallidas }} acciones fallaron. Mira el audit log.</span>
+    </div>
+  {% endif %}
+
   <section class="stats">
     <div class="stat"><b>{{ stats.pendientes }}</b><span>pendientes</span></div>
     <div class="stat"><b>{{ stats.aprobadas }}</b><span>aprobadas</span></div>
@@ -216,7 +259,7 @@
 
       {# data-id es lo único que necesita el JavaScript: el resto de la
          decisión (qué se puede hacer, qué se guarda) lo aplica el servidor. #}
-      <article class="propuesta" data-id="{{ p.id }}"
+      <article class="propuesta" data-id="{{ p.id }}" data-email-id="{{ p.email_id }}"
                {% if vista == 'decididas' %}data-rectificar="1"{% endif %}>
         <div class="meta">
           <span class="remitente">{{ p.email.sender }}</span>
@@ -262,6 +305,18 @@
           {% endfor %}
           <button class="descartar" data-rechazar="1">descartar</button>
         </div>
+
+        {# LA PAPELERA VA EN SU PROPIA FILA, no entre los chips.
+           ADR 002: clasificar y tirar son dos preguntas distintas. Un correo
+           puede ser `promociones` y estar perfectamente clasificado, y aun así
+           sobrar. Meter "papelera" como un chip más obligaría a elegir entre
+           decir qué es y decir que no lo quieres. #}
+        {% if not ciego %}
+          <div class="papelera-fila">
+            <button class="papelera" data-papelera="1">🗑 a la papelera</button>
+            <span class="papelera-nota">reversible 30 días · no borra nada para siempre</span>
+          </div>
+        {% endif %}
       </article>
     {% endfor %}
 
@@ -293,11 +348,17 @@
 // JSON que usaría cualquier otro cliente. Si esta página desapareciera, las
 // reglas seguirían intactas en el servidor.
 document.addEventListener("click", (evento) => {
-  const boton = evento.target.closest(".chip, .descartar");
+  if (evento.target.id === "ejecutar") return aplicarEnGmail(evento.target);
+
+  const boton = evento.target.closest(".chip, .descartar, .papelera");
   if (!boton) return;
 
   const tarjeta = boton.closest(".propuesta");
   if (tarjeta.dataset.ocupada) return;   // evita el doble clic nervioso
+
+  // La papelera no decide la categoría ni quita la tarjeta de la lista: son
+  // dos preguntas y las dos siguen abiertas.
+  if (boton.dataset.papelera) return pedirPapelera(tarjeta, boton);
 
   // En "ya revisadas" todo clic es una rectificación: la propuesta ya se
   // decidió, así que approve/modify devolverían 409 a propósito.
@@ -311,6 +372,37 @@ document.addEventListener("click", (evento) => {
   if (boton.dataset.propuesta) return decidir(tarjeta, "approve");
   return decidir(tarjeta, "modify", boton.dataset.categoria);
 });
+
+async function pedirPapelera(tarjeta, boton) {
+  const emailId = tarjeta.dataset.emailId;
+
+  try {
+    const respuesta = await fetch(`/emails/${emailId}/trash`, { method: "POST" });
+    if (!respuesta.ok) return avisar(tarjeta, `No se pudo pedir (${respuesta.status}).`);
+
+    boton.classList.add("pedida");
+    boton.textContent = "🗑 pedida — se aplicará al pulsar «Aplicar en Gmail»";
+  } catch (error) {
+    avisar(tarjeta, "No hay conexión con el servidor.");
+  }
+}
+
+async function aplicarEnGmail(boton) {
+  boton.disabled = true;
+  boton.textContent = "Aplicando…";
+
+  try {
+    const respuesta = await fetch("/actions/execute", { method: "POST" });
+    const r = await respuesta.json();
+    boton.textContent = `${r.ejecutadas} aplicadas`
+      + (r.fallidas ? `, ${r.fallidas} fallaron` : "");
+    // Recargar: cambian los contadores y el estado de cada acción.
+    setTimeout(() => location.reload(), 1200);
+  } catch (error) {
+    boton.disabled = false;
+    boton.textContent = "No se pudo. Reintentar";
+  }
+}
 
 async function rectificar(tarjeta, categoria) {
   tarjeta.dataset.ocupada = "1";

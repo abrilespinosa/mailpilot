@@ -90,3 +90,18 @@ class DecisionIn(BaseModel):
     """
 
     category: Category | None = None
+
+
+class ActionOut(BaseModel):
+    """Respuesta al PEDIR una acción. Nada ha pasado en Gmail todavía."""
+
+    pedida: bool
+    accion: str
+
+
+class ExecutionOut(BaseModel):
+    """Resultado de ejecutar acciones contra Gmail. Aquí sí ha pasado algo."""
+
+    ejecutadas: int
+    fallidas: int
+    pendientes: int

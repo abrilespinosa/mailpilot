@@ -95,19 +95,34 @@ def asegurar_etiqueta(service, nombre: str, cache: dict[str, str] | None = None)
     return creada["id"]
 
 
-def aplicar_etiqueta(service, gmail_message_id: str, label_id: str) -> None:
+def aplicar_etiqueta(
+    service, gmail_message_id: str, label_id: str, otras_nuestras: list[str] = ()
+) -> None:
     """
-    Añade una etiqueta a un mensaje.
+    Deja el mensaje con UNA etiqueta de MailPilot: la que toca.
 
-    Solo `addLabelIds`. NUNCA `removeLabelIds`: quitar etiquetas dejaría a
-    MailPilot capaz de deshacer la organización que la usuaria ya tenía, y eso
-    no está en el alcance del proyecto.
+    `otras_nuestras` son los ids de las demás etiquetas `MailPilot/*`, que se
+    quitan. Hace falta porque las decisiones cambian: si etiquetas un correo
+    como `promociones` y luego lo corriges a `trabajo`, sin quitar la primera
+    en Gmail acabarían las dos y la etiqueta dejaría de significar nada.
+
+    LA REGLA QUE NO SE PUEDE ROMPER: `removeLabelIds` solo puede contener
+    etiquetas de MailPilot. Nunca las de la usuaria, ni las de Gmail (INBOX,
+    UNREAD, STARRED). Quitar INBOX archivaría el correo, que es una acción
+    destructiva que nadie ha pedido. Quien llame a esta función es responsable
+    de pasar solo ids de `MailPilot/*`, y hay un test que lo comprueba.
 
     Añadir una etiqueta que ya está puesta no hace nada, así que reintentar es
     seguro.
     """
+    cuerpo: dict[str, list[str]] = {"addLabelIds": [label_id]}
+
+    sobrantes = [otra for otra in otras_nuestras if otra != label_id]
+    if sobrantes:
+        cuerpo["removeLabelIds"] = sobrantes
+
     service.users().messages().modify(
-        userId="me", id=gmail_message_id, body={"addLabelIds": [label_id]}
+        userId="me", id=gmail_message_id, body=cuerpo
     ).execute()
 
 
@@ -147,8 +162,17 @@ def ejecutar(session: Session, service, accion: GmailAction, cache=None) -> Gmai
         if accion.action is GmailActionType.APPLY_LABEL:
             categoria = _categoria_a_aplicar(accion)
             nombre = nombre_de_etiqueta(categoria)
+            if cache is None:
+                cache = etiquetas_existentes(service)
             label_id = asegurar_etiqueta(service, nombre, cache)
-            aplicar_etiqueta(service, email.gmail_message_id, label_id)
+            # Solo las nuestras: el filtro por prefijo es lo que garantiza que
+            # `removeLabelIds` jamás toque una etiqueta de la usuaria.
+            nuestras = [
+                id_
+                for nombre_etiqueta, id_ in cache.items()
+                if nombre_etiqueta.startswith(f"{PREFIJO_ETIQUETA}/")
+            ]
+            aplicar_etiqueta(service, email.gmail_message_id, label_id, nuestras)
             detalle = {"etiqueta": nombre}
         else:
             mover_a_papelera(service, email.gmail_message_id)

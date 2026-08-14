@@ -15,7 +15,15 @@ from sqlalchemy import select
 from mailpilot import web
 from mailpilot.api import app
 from mailpilot.db import get_session
-from mailpilot.models import ActionProposal, Category, Email, ProposalStatus
+from mailpilot.models import (
+    ActionProposal,
+    Category,
+    Email,
+    GmailAction,
+    GmailActionStatus,
+    GmailActionType,
+    ProposalStatus,
+)
 from mailpilot.repository import (
     decidir_propuesta,
     generar_propuestas,
@@ -411,3 +419,105 @@ def test_las_revisadas_tienen_paginacion(client, session):
 
     assert "1–2 de 3" in html
     assert "/decididas?offset=2&limit=2" in html
+
+
+# ---------------------------------------------------------------------------
+# Acciones sobre Gmail (Fase 9)
+# ---------------------------------------------------------------------------
+
+
+def test_la_papelera_es_un_gesto_aparte_de_los_chips(client, session):
+    """
+    ADR 002 hecho interfaz.
+
+    Si "papelera" fuera un chip más, elegirlo sustituiría a elegir categoría y
+    tendrías que decidir entre decir qué es y decir que no lo quieres. Va en su
+    propia fila, separada por una línea.
+    """
+    propuesta_lista(session)
+
+    html = client.get("/").text
+
+    assert 'data-papelera="1"' in html
+    assert "papelera-fila" in html
+    # No se ha colado como una categoría más.
+    assert 'data-categoria="papelera"' not in html
+    for categoria in Category:
+        assert f'data-categoria="{categoria.value}"' in html
+
+
+def test_en_modo_ciego_no_hay_papelera(client, session):
+    """
+    Etiquetando a ciegas se mide, no se gestiona. Un botón destructivo ahí
+    solo puede dar disgustos.
+    """
+    propuesta_lista(session)
+
+    assert 'data-papelera="1"' not in client.get("/?ciego=1").text
+
+
+def test_pedir_papelera_no_toca_gmail_todavia(client, session):
+    """
+    LA SEPARACIÓN QUE HACE REVISABLE UNA ACCIÓN DESTRUCTIVA.
+
+    Pedir solo escribe una fila `pending`. Entre decidir y que Gmail cambie hay
+    un paso más, deliberado, para poder ver qué está a punto de pasar.
+    """
+    propuesta = propuesta_lista(session)
+
+    respuesta = client.post(f"/emails/{propuesta.email_id}/trash")
+
+    assert respuesta.status_code == 200
+    accion = session.execute(
+        select(GmailAction).where(GmailAction.action == GmailActionType.MOVE_TO_TRASH)
+    ).scalar_one()
+    assert accion.status is GmailActionStatus.PENDING
+    assert accion.executed_at is None
+
+
+def test_pedir_papelera_dos_veces_no_encola_dos(client, session):
+    """Dos clics seguidos no son un error de la usuaria."""
+    propuesta = propuesta_lista(session)
+
+    client.post(f"/emails/{propuesta.email_id}/trash")
+    segunda = client.post(f"/emails/{propuesta.email_id}/trash")
+
+    assert segunda.status_code == 200
+    assert segunda.json()["pedida"] is False
+    assert len(session.execute(select(GmailAction)).scalars().all()) == 1
+
+
+def test_papelera_de_un_correo_inexistente(client):
+    assert client.post("/emails/99999/trash").status_code == 404
+
+
+def test_aprobar_una_categoria_encola_su_etiqueta(client, session):
+    """
+    Aceptar una categoría es pedir que se etiquete: `categorize` era justo la
+    acción propuesta. Rechazar no encola nada.
+    """
+    propuesta = propuesta_lista(session)
+
+    client.post(f"/proposals/{propuesta.id}/approve")
+
+    accion = session.execute(select(GmailAction)).scalar_one()
+    assert accion.action is GmailActionType.APPLY_LABEL
+    assert accion.status is GmailActionStatus.PENDING
+
+
+def test_rechazar_no_encola_ninguna_etiqueta(client, session):
+    propuesta = propuesta_lista(session)
+
+    client.post(f"/proposals/{propuesta.id}/reject")
+
+    assert session.execute(select(GmailAction)).scalars().all() == []
+
+
+def test_la_barra_avisa_de_que_gmail_no_ha_cambiado(client, session):
+    propuesta = propuesta_lista(session)
+    client.post(f"/proposals/{propuesta.id}/approve")
+
+    html = client.get("/").text
+
+    assert "acciones esperando" in html
+    assert "no</b> ha cambiado nada en Gmail" in html

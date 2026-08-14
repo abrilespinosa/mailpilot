@@ -1,8 +1,9 @@
 """
 API HTTP de MailPilot.
 
-Los endpoints de escritura que existen SOLO registran decisiones de la usuaria
-sobre propuestas. Ninguno toca Gmail: eso llega en la Fase 9.
+Casi todos los endpoints de escritura solo registran decisiones de la usuaria
+en la base de datos. La ÚNICA excepción es POST /actions/execute, que sí toca
+Gmail, y solo ejecuta acciones que alguien pidió antes de forma explícita.
 
 Ninguna acción ocurre sin una decisión humana explícita. La API no tiene forma
 de aprobar nada por su cuenta, ni la IA de llamarse a sí misma.
@@ -16,17 +17,34 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from mailpilot import web
+from mailpilot import gmail_actions, web
 from mailpilot.db import get_session
-from mailpilot.models import ActionProposal, Email, ProposalStatus
+from mailpilot.gmail import get_service
+from mailpilot.models import (
+    ActionProposal,
+    Email,
+    GmailActionStatus,
+    GmailActionType,
+    ProposalStatus,
+)
 from mailpilot.repository import (
     PropuestaNoDecidida,
     PropuestaYaDecidida,
+    acciones_pendientes,
     decidir_propuesta,
+    encolar_accion,
     propuestas_pendientes,
     rectificar_decision,
 )
-from mailpilot.schemas import DecisionIn, EmailDetail, EmailPage, ProposalOut, ProposalPage
+from mailpilot.schemas import (
+    ActionOut,
+    DecisionIn,
+    EmailDetail,
+    EmailPage,
+    ExecutionOut,
+    ProposalOut,
+    ProposalPage,
+)
 
 app = FastAPI(
     title="MailPilot",
@@ -210,3 +228,74 @@ def rectify_proposal(
         raise HTTPException(status_code=404, detail="Propuesta no encontrada")
     except PropuestaNoDecidida as error:
         raise HTTPException(status_code=409, detail=str(error))
+
+
+# ---------------------------------------------------------------------------
+# Acciones sobre Gmail (Fase 9)
+#
+# Estos son los primeros endpoints que pueden acabar cambiando algo en la
+# cuenta. Van en dos pasos a propósito: pedir y ejecutar. Entre uno y otro se
+# puede ver qué está a punto de pasar, y eso es lo que hace revisable una
+# acción destructiva.
+# ---------------------------------------------------------------------------
+
+
+@app.post("/emails/{email_id}/trash", response_model=ActionOut, tags=["acciones"])
+def request_trash(
+    email_id: int, session: Session = Depends(get_session)
+) -> dict:
+    """
+    Pide mover un correo a la papelera. NO lo mueve todavía.
+
+    Es un eje distinto del de la categoría (ADR 002): la usuaria tira muchos
+    correos de `promociones` y `otros` que están bien clasificados, y tirar no
+    dice nada sobre si la etiqueta era correcta.
+
+    La papelera de Gmail es reversible 30 días. El borrado permanente no
+    existe en este proyecto y el scope que pedimos tampoco lo permitiría.
+    """
+    if session.get(Email, email_id) is None:
+        raise HTTPException(status_code=404, detail="Correo no encontrado")
+
+    accion = encolar_accion(session, email_id, GmailActionType.MOVE_TO_TRASH)
+
+    # Ya estaba pedida: no es un error, es un segundo clic.
+    return {"pedida": accion is not None, "accion": "move_to_trash"}
+
+
+@app.post("/actions/execute", response_model=ExecutionOut, tags=["acciones"])
+def execute_actions(
+    limit: int = Query(25, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> dict:
+    """
+    Ejecuta contra Gmail las acciones ya pedidas. AQUÍ SÍ CAMBIA TU CUENTA.
+
+    Solo toca filas en estado `pending`, y esas filas solo existen porque
+    alguien las pidió: no hay forma de que este endpoint invente trabajo.
+
+    El tope de 100 no es decorativo. Cada acción es una llamada de red a
+    Gmail, así que sin límite una petición podría tardar minutos y morir a la
+    mitad. Como cada acción se guarda al terminar, cortar por lo sano deja el
+    estado consistente y basta con volver a llamar.
+    """
+    pendientes = acciones_pendientes(session, limit=limit)
+    if not pendientes:
+        return {"ejecutadas": 0, "fallidas": 0, "pendientes": 0}
+
+    service = get_service()
+    cache = gmail_actions.etiquetas_existentes(service)
+
+    ejecutadas = fallidas = 0
+    for accion in pendientes:
+        resultado = gmail_actions.ejecutar(session, service, accion, cache)
+        if resultado.status is GmailActionStatus.EXECUTED:
+            ejecutadas += 1
+        else:
+            fallidas += 1
+
+    return {
+        "ejecutadas": ejecutadas,
+        "fallidas": fallidas,
+        "pendientes": len(acciones_pendientes(session, limit=10_000)),
+    }

@@ -155,6 +155,12 @@ ESCRITURA_PERMITIDA = {
     # de arriba devuelven 409 sobre algo ya decidido, y esa protección contra
     # dos pestañas pisándose tiene que seguir intacta.
     ("POST", "/proposals/{proposal_id}/rectify"),
+    # --- Fase 9: los dos únicos que pueden acabar cambiando algo en Gmail ---
+    # Pedir la papelera. Solo escribe una fila `pending`: no toca Gmail.
+    ("POST", "/emails/{email_id}/trash"),
+    # EL ÚNICO ENDPOINT DE TODO EL PROYECTO QUE ESCRIBE EN GMAIL.
+    # Ejecuta acciones que ya estaban pedidas; no puede inventarse trabajo.
+    ("POST", "/actions/execute"),
 }
 
 

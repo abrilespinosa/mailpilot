@@ -62,6 +62,23 @@ def preparar_decidida(session, categoria=Category.PROMOCIONES, elegida=None):
 
 
 def encolar(session, email, accion, propuesta=None):
+    """
+    Devuelve la acción pendiente de ese tipo, creándola si no la hay.
+
+    Decidir una propuesta YA encola su `apply_label`, así que en ese caso aquí
+    solo hay que recogerla. Crear otra chocaría con el índice único parcial,
+    que es justo lo que debe pasar.
+    """
+    ya = session.execute(
+        select(GmailAction).where(
+            GmailAction.email_id == email.id,
+            GmailAction.action == accion,
+            GmailAction.status == GmailActionStatus.PENDING,
+        )
+    ).scalar_one_or_none()
+    if ya is not None:
+        return ya
+
     fila = GmailAction(
         email_id=email.id,
         action=accion,
@@ -106,20 +123,47 @@ def test_no_recrea_una_etiqueta_que_ya_existe(session):
     assert service.messages().modify_calls[0]["body"] == {"addLabelIds": ["Label_7"]}
 
 
-def test_solo_anade_etiquetas_nunca_quita(session, service):
+def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
     """
-    Solo `addLabelIds`. Si apareciera `removeLabelIds`, MailPilot podría
-    deshacer la organización que la usuaria ya tenía, y eso está fuera del
-    alcance del proyecto.
+    LA REGLA QUE NO SE PUEDE ROMPER.
+
+    MailPilot puede quitar sus propias etiquetas (`MailPilot/*`) porque las
+    decisiones cambian y un correo no puede acabar con dos. Lo que no puede
+    tocar es nada más: ni las etiquetas de la usuaria ni las de Gmail.
+
+    Quitar `INBOX` archivaría el correo. Es destructivo, nadie lo ha pedido, y
+    se colaría con un simple descuido al construir la lista.
     """
+    email, propuesta = preparar_decidida(session)
+    accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
+    service = FakeWritableService(
+        FakeWritableMessages(),
+        FakeLabels({
+            "MailPilot/trabajo": "Label_mp1",     # nuestra, sobra -> se quita
+            "MailPilot/promociones": "Label_mp2", # nuestra, es la que toca
+            "Universidad": "Label_suya",          # SUYA
+            "INBOX": "INBOX",                     # de Gmail
+            "STARRED": "STARRED",
+        }),
+    )
+
+    gmail_actions.ejecutar(session, service, accion)
+
+    cuerpo = service.messages().modify_calls[0]["body"]
+    assert cuerpo["addLabelIds"] == ["Label_mp2"]
+    assert cuerpo["removeLabelIds"] == ["Label_mp1"]
+    for intocable in ("Label_suya", "INBOX", "STARRED"):
+        assert intocable not in cuerpo["removeLabelIds"]
+
+
+def test_sin_otras_etiquetas_nuestras_no_manda_removeLabelIds(session, service):
+    """Nada que quitar, ninguna clave de más en la petición."""
     email, propuesta = preparar_decidida(session)
     accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
 
     gmail_actions.ejecutar(session, service, accion)
 
-    cuerpo = service.messages().modify_calls[0]["body"]
-    assert "removeLabelIds" not in cuerpo
-    assert list(cuerpo) == ["addLabelIds"]
+    assert list(service.messages().modify_calls[0]["body"]) == ["addLabelIds"]
 
 
 def test_etiqueta_lo_que_eligio_la_usuaria_no_lo_que_dijo_la_ia(session, service):
@@ -255,3 +299,62 @@ def test_el_modulo_no_expone_funciones_de_envio_ni_borrado(prohibida):
     """
     publicas = [n for n in dir(gmail_actions) if not n.startswith("_")]
     assert not [n for n in publicas if prohibida in n.lower()]
+
+
+# ---------------------------------------------------------------------------
+# El flujo entero, de punta a punta
+# ---------------------------------------------------------------------------
+
+
+def test_de_la_decision_a_gmail(session, service):
+    """
+    EL TEST QUE RESUME LA FASE 9.
+
+    La IA dice `promociones`, la usuaria corrige a `trabajo` y además lo tira.
+    Al final, en Gmail: etiqueta `MailPilot/trabajo` y el mensaje en la
+    papelera. Y en la base de datos, todo el rastro de por qué.
+    """
+    email, propuesta = preparar_decidida(
+        session, categoria=Category.PROMOCIONES, elegida=Category.TRABAJO
+    )
+    from mailpilot.repository import encolar_accion
+
+    # Aprobar/corregir ya encoló la etiqueta; la papelera la pide ella aparte.
+    encolar_accion(session, email.id, GmailActionType.MOVE_TO_TRASH)
+
+    from mailpilot.repository import acciones_pendientes
+
+    pendientes = acciones_pendientes(session)
+    assert len(pendientes) == 2
+
+    for accion in pendientes:
+        gmail_actions.ejecutar(session, service, accion)
+
+    assert service.labels().create_calls[0]["body"]["name"] == "MailPilot/trabajo"
+    assert service.messages().trash_calls[0]["id"] == email.gmail_message_id
+    assert all(a.status is GmailActionStatus.EXECUTED for a in pendientes)
+
+    # Lo tirado NO desaparece del cálculo del acierto: sigue siendo una
+    # corrección del modelo, esté en la papelera o no (ADR 002).
+    from mailpilot.repository import correcciones
+
+    assert len(correcciones(session)) == 1
+
+
+def test_tirar_un_correo_no_cambia_las_estadisticas_de_acierto(session, service):
+    """
+    EL CANARIO DEL ADR 002.
+
+    Si algún día hay que tocar `estadisticas()` para tener en cuenta lo tirado,
+    es que los dos ejes se han mezclado. Aquí se comprueba que tirar un correo
+    deja el acierto exactamente igual.
+    """
+    from mailpilot.repository import encolar_accion, estadisticas
+
+    email, _ = preparar_decidida(session)
+    antes = estadisticas(session)
+
+    accion = encolar(session, email, GmailActionType.MOVE_TO_TRASH)
+    gmail_actions.ejecutar(session, service, accion)
+
+    assert estadisticas(session) == antes
