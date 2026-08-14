@@ -22,6 +22,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     func,
@@ -397,6 +398,14 @@ class GmailAction(Base):
 
     # Qué etiqueta se aplicó, o el error de Gmail si falló.
     detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Cuántas veces se ha intentado. Solo sube con errores PASAJEROS (429 de
+    # Gmail, 5xx, cortes de red): esos dejan la fila en `pending` para que se
+    # reintente sola. El tope existe para que un correo que siempre falla no
+    # bloquee la cola eternamente; al llegar a MAX_INTENTOS pasa a `failed`.
+    intentos: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

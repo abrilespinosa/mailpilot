@@ -39,9 +39,16 @@ class EmailData:
     raw_labels: list[str]
 
 
-def get_service():
-    """Devuelve un cliente autenticado de la Gmail API."""
-    return build("gmail", "v1", credentials=get_credentials())
+def get_service(interactivo: bool = True):
+    """
+    Devuelve un cliente autenticado de la Gmail API.
+
+    `interactivo=False` hace que caducar el token lance
+    `auth.NecesitaReautenticacion` en vez de abrir el navegador. Es obligatorio
+    en todo lo que atienda peticiones HTTP: ver el docstring de
+    `auth.get_credentials`.
+    """
+    return build("gmail", "v1", credentials=get_credentials(interactivo=interactivo))
 
 
 def list_message_ids(service, limit: int = 10) -> list[str]:

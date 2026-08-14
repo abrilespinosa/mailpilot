@@ -106,6 +106,12 @@ class ExecutionOut(BaseModel):
     fallidas: int
     pendientes: int
 
+    # La tanda se cortó porque Gmail pidió esperar. Lo que quedaba sigue
+    # pendiente: no se ha perdido nada, solo hay que volver a llamar más tarde.
+    # Sin este dato el bucle del dashboard reintentaría en el acto y
+    # convertiría un límite de ritmo en un castigo más largo.
+    frenado: bool = False
+
 
 class BackfillOut(BaseModel):
     """Cuántas etiquetas atrasadas se han dejado pedidas. Gmail sigue intacto."""

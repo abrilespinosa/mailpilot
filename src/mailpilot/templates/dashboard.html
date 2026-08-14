@@ -559,12 +559,36 @@ async function aplicarEnGmail(boton) {
   // de red a Gmail: mandar doscientas en una sola petición la haría tardar
   // minutos y morir por timeout. Como cada acción se guarda al terminar,
   // trocear deja el estado consistente aunque se corte a la mitad.
+  // Espera creciente cuando Gmail pide calma. Empieza en 2 s y dobla: si el
+  // límite de ritmo sigue puesto, insistir cada segundo solo lo alarga.
+  let espera = 2000;
+
   try {
     while (true) {
-      const r = await (await fetch("/actions/execute", { method: "POST" })).json();
+      const respuesta = await fetch("/actions/execute", { method: "POST" });
+
+      // 503 = el token de Gmail caducó. No es un fallo pasajero: hasta que no
+      // reautentiques desde una terminal no hay nada que hacer, así que se
+      // para y se dice qué hacer en vez de reintentar en bucle.
+      if (respuesta.status === 503) {
+        const { detail } = await respuesta.json();
+        boton.textContent = detail || "Reautentica: python scripts/test_auth.py";
+        return;
+      }
+
+      const r = await respuesta.json();
       hechas += r.ejecutadas;
       fallos += r.fallidas;
       boton.textContent = `Aplicando… ${hechas}`;
+
+      if (r.frenado) {
+        boton.textContent = `${hechas} aplicadas · Gmail pide esperar…`;
+        await new Promise((listo) => setTimeout(listo, espera));
+        espera = Math.min(espera * 2, 30000);
+        continue;
+      }
+
+      espera = 2000;   // una tanda limpia reinicia la espera
       if (r.pendientes === 0 || (r.ejecutadas === 0 && r.fallidas === 0)) break;
     }
     boton.textContent = `${hechas} aplicadas` + (fallos ? `, ${fallos} fallaron` : "");

@@ -18,6 +18,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from mailpilot import gmail_actions, web
+from mailpilot.auth import NecesitaReautenticacion
 from mailpilot.db import get_session
 from mailpilot.gmail import get_service, ids_en_papelera
 from mailpilot.models import (
@@ -289,6 +290,25 @@ def request_restore(email_id: int, session: Session = Depends(get_session)) -> d
     }
 
 
+def _servicio_gmail():
+    """
+    El ÚNICO sitio donde la API construye un cliente de Gmail.
+
+    `interactivo=False` es lo que impide que una petición HTTP acabe dentro de
+    `flow.run_local_server()`, que se queda esperando un callback del navegador
+    que aquí nunca llega: la petición se colgaría para siempre y el botón del
+    dashboard giraría sin decir nada.
+
+    En su lugar sale un 503 con la instrucción exacta. Con el OAuth en modo
+    Testing el token caduca cada 7 días, así que este camino se recorre todas
+    las semanas y tiene que explicarse solo.
+    """
+    try:
+        return get_service(interactivo=False)
+    except NecesitaReautenticacion as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/actions/sync-trash", response_model=SyncOut, tags=["acciones"])
 def sync_trash(session: Session = Depends(get_session)) -> dict:
     """
@@ -301,7 +321,7 @@ def sync_trash(session: Session = Depends(get_session)) -> dict:
     Es una LECTURA de Gmail: no mueve ni etiqueta nada. Va en las dos
     direcciones, así que rescatar un correo desde Gmail también se refleja.
     """
-    return sincronizar_papelera(session, ids_en_papelera(get_service()))
+    return sincronizar_papelera(session, ids_en_papelera(_servicio_gmail()))
 
 
 @app.post("/actions/backfill", response_model=BackfillOut, tags=["acciones"])
@@ -337,12 +357,23 @@ def execute_actions(
     if not pendientes:
         return {"ejecutadas": 0, "fallidas": 0, "pendientes": 0}
 
-    service = get_service()
+    service = _servicio_gmail()
     cache = gmail_actions.etiquetas_existentes(service)
 
     ejecutadas = fallidas = 0
+    frenado = False
+
     for accion in pendientes:
-        resultado = gmail_actions.ejecutar(session, service, accion, cache)
+        try:
+            resultado = gmail_actions.ejecutar(session, service, accion, cache)
+        except gmail_actions.ErrorPasajero:
+            # Gmail ha dicho "ahora no" (429, o algo caído de su lado). Se
+            # CORTA la tanda: seguir pidiendo es lo que convierte un límite de
+            # ritmo en cincuenta. La acción sigue pendiente, así que no se ha
+            # perdido nada y la siguiente llamada la recoge.
+            frenado = True
+            break
+
         if resultado.status is GmailActionStatus.EXECUTED:
             ejecutadas += 1
         else:
@@ -352,4 +383,5 @@ def execute_actions(
         "ejecutadas": ejecutadas,
         "fallidas": fallidas,
         "pendientes": len(acciones_pendientes(session, limit=10_000)),
+        "frenado": frenado,
     }

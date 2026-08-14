@@ -60,11 +60,33 @@ def _token_tiene_los_scopes() -> bool:
     return True
 
 
-def get_credentials() -> Credentials:
+class NecesitaReautenticacion(Exception):
+    """
+    Hace falta el flujo de navegador y quien llamó dijo que no podía abrirlo.
+
+    Existe para que el servidor web NUNCA acabe dentro de `run_local_server`:
+    esa llamada se queda esperando un callback del navegador, y en una petición
+    HTTP ese callback no llega jamás. La petición se colgaría, el botón del
+    dashboard giraría para siempre y no habría ni un mensaje que explicara nada.
+
+    Con el OAuth en modo Testing el refresh token caduca a los 7 días, así que
+    esto no es un caso raro: pasa cada semana.
+    """
+
+
+def get_credentials(interactivo: bool = True) -> Credentials:
     """
     Devuelve credenciales válidas, reutilizando el token guardado si existe
     y sigue siendo válido, o refrescándolo si ha caducado.
-    Si no hay token previo, lanza el flujo de login en el navegador.
+
+    `interactivo=True` (el defecto) permite abrir el navegador si no queda otra.
+    Es lo que quieren los scripts de `scripts/`, que los lanza una persona
+    delante de una terminal.
+
+    `interactivo=False` lo prohíbe y lanza `NecesitaReautenticacion`. Es lo que
+    tiene que usar CUALQUIER código que atienda una petición HTTP. El defecto es
+    el permisivo porque romper los scripts sería peor, pero el servidor lo pone
+    explícito y hay un test que lo vigila.
     """
     creds: Credentials | None = None
 
@@ -83,6 +105,14 @@ def get_credentials() -> Credentials:
                 creds = None
 
         if not creds:
+            # EL CORTE. Antes de tocar nada que pueda bloquear, comprobar si
+            # quien llama puede permitirse un navegador. El servidor no.
+            if not interactivo:
+                raise NecesitaReautenticacion(
+                    "El token de Gmail ha caducado o no existe. Reautentica "
+                    "desde una terminal:  python scripts/test_auth.py"
+                )
+
             if not CLIENT_SECRET_PATH.exists():
                 raise FileNotFoundError(
                     f"No encuentro {CLIENT_SECRET_PATH}. "

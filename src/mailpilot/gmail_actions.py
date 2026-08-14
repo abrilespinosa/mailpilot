@@ -89,6 +89,44 @@ def nombre_de_etiqueta(categoria: Category) -> str:
     return NOMBRES_EN_GMAIL[categoria]
 
 
+# Códigos HTTP que significan "vuelve a intentarlo", no "esto está mal".
+#
+#   429  vas demasiado rápido (Gmail limita por usuario y por segundo)
+#   5xx  se ha caído algo de su lado
+#
+# Un 404 (el correo ya no existe) o un 403 de permisos NO están aquí: repetir
+# eso mil veces daría el mismo resultado.
+TRANSITORIOS = frozenset({429, 500, 502, 503, 504})
+
+# Cuántas veces se reintenta algo pasajero antes de rendirse. Sin tope, un
+# correo que siempre falla bloquearía la cola para siempre.
+MAX_INTENTOS = 5
+
+
+class ErrorPasajero(Exception):
+    """Gmail dijo 'ahora no'. La acción se queda pendiente y se reintenta."""
+
+
+def _es_pasajero(error: Exception) -> bool:
+    """
+    Decide si merece la pena reintentar.
+
+    Tratar todos los errores igual era el bug: procesar 2.000 correos son más
+    de 3.000 llamadas, Gmail devuelve 429 en cuanto aprietas, y cada uno mataba
+    la acción para siempre sin forma de recuperarla.
+
+    Los errores de red (sin `status`) cuentan como pasajeros: un corte de wifi
+    no dice nada sobre si la acción era válida.
+    """
+    respuesta = getattr(error, "resp", None)
+    codigo = getattr(respuesta, "status", None)
+
+    if codigo is None:
+        return isinstance(error, (TimeoutError, ConnectionError, OSError))
+
+    return int(codigo) in TRANSITORIOS
+
+
 # ---------------------------------------------------------------------------
 # Operaciones sobre Gmail. Ninguna toca la base de datos.
 # ---------------------------------------------------------------------------
@@ -262,8 +300,34 @@ def ejecutar(session: Session, service, accion: GmailAction, cache=None) -> Gmai
             detalle = {"papelera": True, "reversible_dias": 30}
 
     except Exception as error:
+        descripcion = f"{type(error).__name__}: {error}"
+        accion.intentos += 1
+
+        # PASAJERO: la fila se queda PENDING y se reintenta sola en la
+        # siguiente tanda. Antes todo error acababa en `failed`, así que un
+        # simple 429 —garantizado al mandar miles de acciones— mataba la acción
+        # para siempre y solo se arreglaba a mano en SQL.
+        if _es_pasajero(error) and accion.intentos < MAX_INTENTOS:
+            accion.detail = {
+                "ultimo_error": descripcion,
+                "intentos": accion.intentos,
+                "pasajero": True,
+            }
+            session.add(
+                AuditLog(
+                    email_id=accion.email_id,
+                    action_proposal_id=accion.action_proposal_id,
+                    event_type="gmail_action_reintentable",
+                    detail={"accion": accion.action.value, **accion.detail},
+                )
+            )
+            session.commit()
+            # Se avisa hacia arriba para que la tanda pare en vez de seguir
+            # dándole a Gmail, que es lo que convierte un 429 en veinte.
+            raise ErrorPasajero(descripcion) from error
+
         accion.status = GmailActionStatus.FAILED
-        accion.detail = {"error": f"{type(error).__name__}: {error}"}
+        accion.detail = {"error": descripcion, "intentos": accion.intentos}
         session.add(
             AuditLog(
                 email_id=accion.email_id,
