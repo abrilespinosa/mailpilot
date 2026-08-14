@@ -107,7 +107,7 @@ def test_las_etiquetas_se_llaman_como_las_ve_la_usuaria(session, service):
     gmail_actions.ejecutar(session, service, accion)
 
     assert service.labels().create_calls[0]["body"]["name"] == "Promociones"
-    assert accion.detail == {"etiqueta": "Promociones"}
+    assert accion.detail == {"etiqueta": "Promociones", "archivado": True}
 
 
 def test_no_recrea_una_etiqueta_que_ya_existe(session):
@@ -120,7 +120,10 @@ def test_no_recrea_una_etiqueta_que_ya_existe(session):
     gmail_actions.ejecutar(session, service, accion)
 
     assert service.labels().create_calls == []
-    assert service.messages().modify_calls[0]["body"] == {"addLabelIds": ["Label_7"]}
+    assert service.messages().modify_calls[0]["body"] == {
+        "addLabelIds": ["Label_7"],
+        "removeLabelIds": ["INBOX"],   # archivar, ADR 004
+    }
 
 
 def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
@@ -135,8 +138,9 @@ def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
     pasó a ser este conjunto cerrado. Si se ampliara sin pensar, MailPilot
     podría empezar a quitar etiquetas ajenas.
 
-    Quitar `INBOX` archivaría el correo. Es destructivo, nadie lo ha pedido, y
-    se colaría con un simple descuido al construir la lista.
+    INBOX se quita a propósito desde el ADR 004: archivar es el motivo del
+    proyecto. Lo que sigue siendo intocable es todo lo demás, y en concreto
+    UNREAD y STARRED, que se colarían con un descuido al construir la lista.
     """
     email, propuesta = preparar_decidida(session)
     accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
@@ -146,8 +150,9 @@ def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
             "Trabajo": "Label_mp1",       # nuestra, sobra -> se quita
             "Promociones": "Label_mp2",   # nuestra, es la que toca
             "Universidad": "Label_suya",  # SUYA
-            "INBOX": "INBOX",             # de Gmail
+            "INBOX": "INBOX",             # archivar: se quita (ADR 004)
             "STARRED": "STARRED",
+            "UNREAD": "UNREAD",
         }),
     )
 
@@ -155,19 +160,46 @@ def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
 
     cuerpo = service.messages().modify_calls[0]["body"]
     assert cuerpo["addLabelIds"] == ["Label_mp2"]
-    assert cuerpo["removeLabelIds"] == ["Label_mp1"]
-    for intocable in ("Label_suya", "INBOX", "STARRED"):
+    assert set(cuerpo["removeLabelIds"]) == {"Label_mp1", "INBOX"}
+    for intocable in ("Label_suya", "STARRED", "UNREAD"):
         assert intocable not in cuerpo["removeLabelIds"]
 
 
-def test_sin_otras_etiquetas_nuestras_no_manda_removeLabelIds(session, service):
-    """Nada que quitar, ninguna clave de más en la petición."""
+def test_lo_quitable_es_un_conjunto_cerrado():
+    """
+    La lista blanca completa, escrita una vez y fijada aquí.
+
+    Es la frontera que decide qué puede deshacer MailPilot de lo que hiciste
+    tú. Ampliarla tiene que costar un cambio visible en un test, igual que
+    ampliar el enum de acciones.
+    """
+    assert gmail_actions.QUITABLES == {
+        "Personal", "Trabajo", "Compras", "Trámites",
+        "Avisos", "Promociones", "Otros",
+        "INBOX",
+    }
+    for jamas in ("UNREAD", "STARRED", "IMPORTANT", "SPAM", "TRASH", "SENT"):
+        assert jamas not in gmail_actions.QUITABLES
+
+
+def test_clasificar_saca_el_correo_de_recibidos(session, service):
+    """
+    ADR 004, y el motivo por el que existe el proyecto.
+
+    La bandeja de entrada tiene que quedarse con lo que aún no has mirado. Si
+    clasificar dejara el correo en Recibidos, MailPilot solo añadiría etiquetas
+    a un montón que sigue creciendo.
+
+    Archivar NO borra: el correo sigue en Todos, sigue buscable y sigue con su
+    etiqueta en la barra lateral. Volver a añadir INBOX lo deshace.
+    """
     email, propuesta = preparar_decidida(session)
     accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
 
     gmail_actions.ejecutar(session, service, accion)
 
-    assert list(service.messages().modify_calls[0]["body"]) == ["addLabelIds"]
+    assert "INBOX" in service.messages().modify_calls[0]["body"]["removeLabelIds"]
+    assert accion.detail["archivado"] is True
 
 
 def test_etiqueta_lo_que_eligio_la_usuaria_no_lo_que_dijo_la_ia(session, service):
@@ -186,7 +218,7 @@ def test_etiqueta_lo_que_eligio_la_usuaria_no_lo_que_dijo_la_ia(session, service
 
     gmail_actions.ejecutar(session, service, accion)
 
-    assert accion.detail == {"etiqueta": "Trabajo"}
+    assert accion.detail["etiqueta"] == "Trabajo"
 
 
 def test_no_etiqueta_si_la_usuaria_no_ha_decidido(session, service):
@@ -283,9 +315,12 @@ def test_cada_ejecucion_queda_en_el_audit_log(session, service):
     registro = session.execute(
         select(AuditLog).where(AuditLog.event_type == "gmail_action_executed")
     ).scalars().one()
+    # `archivado` está aquí a propósito: el nombre del enum no dice que además
+    # se saque el correo de Recibidos, así que lo dice el registro.
     assert registro.detail == {
         "accion": "apply_label",
         "etiqueta": "Promociones",
+        "archivado": True,
     }
     assert registro.email_id == email.id
 
@@ -449,6 +484,46 @@ def test_recuperar_devuelve_tambien_su_categoria(session, service):
 
     assert email.en_papelera is False
     assert service.labels().create_calls[0]["body"]["name"] == "Trabajo"
+
+
+def test_recuperar_deja_el_correo_en_recibidos_pese_a_que_etiquetar_archiva(
+    session, service
+):
+    """
+    EL ORDEN DE LA COLA, que es lo que hace que "recuperar" signifique algo.
+
+    Desde el ADR 004 `apply_label` archiva. Recuperar encola las dos acciones,
+    así que si la etiqueta se ejecutara la última, el correo saldría de la
+    papelera y desaparecería de Recibidos en la misma tanda: el gesto de la
+    usuaria quedaría deshecho por un efecto secundario.
+
+    Se ejecutan por `id`, así que la etiqueta va PRIMERO y la recuperación
+    después. El gesto más reciente es el que manda.
+    """
+    from mailpilot.repository import acciones_pendientes, pedir_recuperacion
+
+    email, propuesta = preparar_decidida(session)
+    for a in session.execute(select(GmailAction)).scalars().all():
+        session.delete(a)
+    email.en_papelera = True
+    email.raw_labels = ["INBOX", "TRASH"]   # estaba en Recibidos al tirarlo
+    session.commit()
+
+    assert pedir_recuperacion(session, email.id) is True
+
+    orden = [a.action for a in acciones_pendientes(session)]
+    assert orden == [
+        GmailActionType.APPLY_LABEL,
+        GmailActionType.RESTORE_FROM_TRASH,
+    ]
+
+    for accion in acciones_pendientes(session):
+        gmail_actions.ejecutar(session, service, accion)
+
+    # La última llamada a modify es la que deja el correo como queda, y tiene
+    # que ser la que devuelve INBOX.
+    assert service.messages().modify_calls[-1]["body"] == {"addLabelIds": ["INBOX"]}
+    assert email.en_papelera is False
 
 
 def test_pedir_recuperacion_dos_veces_no_duplica(session):

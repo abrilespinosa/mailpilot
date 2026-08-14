@@ -1,10 +1,10 @@
 """
 El ÚNICO módulo que escribe en Gmail.
 
-Todo lo que MailPilot puede hacerle a tu cuenta está aquí, y son dos cosas:
-poner una etiqueta y mover a la papelera. Ningún otro módulo debe llamar a la
-API de escritura; `tests/test_limites_gmail.py` lo comprueba rastreando el
-código fuente.
+Todo lo que MailPilot puede hacerle a tu cuenta está aquí, y son tres cosas:
+etiquetar (que además archiva), mover a la papelera y sacar de la papelera.
+Ningún otro módulo debe llamar a la API de escritura;
+`tests/test_limites_gmail.py` lo comprueba rastreando el código fuente.
 
 LO QUE NO HACE, Y POR QUÉ IMPORTA
 ---------------------------------
@@ -12,8 +12,13 @@ LO QUE NO HACE, Y POR QUÉ IMPORTA
   Google, la impone este módulo más el test que lo vigila. Ver ADR 003.
 - **No borra permanentemente.** Eso sí lo impide Google: `messages.delete`
   exige el scope `https://mail.google.com/`, que no pedimos.
-- **No toca tus etiquetas.** Solo crea las suyas bajo `MailPilot/` y las añade.
-  Nunca quita etiquetas existentes ni borra ninguna.
+- **No toca tus etiquetas.** Solo puede quitar las siete suyas e INBOX, que es
+  la lista blanca cerrada `QUITABLES`. Nunca las tuyas, nunca UNREAD, nunca
+  STARRED. Y no borra ninguna etiqueta de la cuenta, solo las despega de un
+  mensaje.
+- **Archiva al clasificar** (ADR 004): quitar INBOX es lo que en Gmail
+  significa archivar. Ni borra ni mueve nada, y volver a añadir INBOX lo
+  deshace.
 - **No decide nada.** Ejecuta filas de `gmail_actions` que existen porque
   alguien las pidió. Este módulo no sabe clasificar ni le pregunta al modelo.
 
@@ -65,6 +70,20 @@ NOMBRES_EN_GMAIL = {
 # `removeLabelIds` puede llegar a contener: ver `aplicar_etiqueta`.
 NUESTRAS_ETIQUETAS = frozenset(NOMBRES_EN_GMAIL.values())
 
+# Archivar en Gmail es exactamente esto: quitar INBOX. El correo no se borra
+# ni se mueve, sigue en Todos y sigue con su etiqueta.
+INBOX = "INBOX"
+
+# La lista blanca COMPLETA de lo que se puede quitar de un mensaje. Es una
+# frontera de seguridad, no una comodidad: ampliarla es darle a MailPilot
+# permiso para deshacer algo que hiciste tú.
+#
+# Lo que NO está aquí, y por qué:
+#   UNREAD   quitarlo marcaría como leído lo que no has leído
+#   STARRED  quitarlo borraría tus destacados
+#   las tuyas   son tuyas
+QUITABLES = NUESTRAS_ETIQUETAS | {INBOX}
+
 
 def nombre_de_etiqueta(categoria: Category) -> str:
     return NOMBRES_EN_GMAIL[categoria]
@@ -112,30 +131,49 @@ def asegurar_etiqueta(service, nombre: str, cache: dict[str, str] | None = None)
 
 
 def aplicar_etiqueta(
-    service, gmail_message_id: str, label_id: str, otras_nuestras: list[str] = ()
+    service,
+    gmail_message_id: str,
+    label_id: str,
+    cache: dict[str, str],
+    archivar: bool = True,
 ) -> None:
     """
-    Deja el mensaje con UNA etiqueta de MailPilot: la que toca.
+    Deja el mensaje con UNA etiqueta de MailPilot y fuera de Recibidos.
 
-    `otras_nuestras` son los ids de las demás etiquetas `MailPilot/*`, que se
-    quitan. Hace falta porque las decisiones cambian: si etiquetas un correo
-    como `promociones` y luego lo corriges a `trabajo`, sin quitar la primera
-    en Gmail acabarían las dos y la etiqueta dejaría de significar nada.
+    Quita las demás etiquetas nuestras porque las decisiones cambian: si
+    clasificas un correo como `promociones` y luego lo corriges a `trabajo`,
+    sin quitar la primera acabarían las dos y la etiqueta dejaría de
+    significar nada.
 
-    LA REGLA QUE NO SE PUEDE ROMPER: `removeLabelIds` solo puede contener
-    etiquetas de MailPilot. Nunca las de la usuaria, ni las de Gmail (INBOX,
-    UNREAD, STARRED). Quitar INBOX archivaría el correo, que es una acción
-    destructiva que nadie ha pedido. Quien llame a esta función es responsable
-    de pasar solo ids de `MailPilot/*`, y hay un test que lo comprueba.
+    Y quita INBOX, que en Gmail es exactamente lo que significa archivar. Es
+    el motivo del proyecto: la bandeja de entrada se queda con lo que aún no
+    has mirado. El correo no se borra —sigue en Todos, sigue buscable y sigue
+    con su etiqueta—, y volver a añadir INBOX lo deshace.
 
-    Añadir una etiqueta que ya está puesta no hace nada, así que reintentar es
-    seguro.
+    LA REGLA QUE NO SE PUEDE ROMPER
+    -------------------------------
+    `removeLabelIds` solo puede contener etiquetas de `QUITABLES`: las siete
+    nuestras y INBOX. Nunca las de la usuaria, nunca UNREAD (marcaría como
+    leído lo que no has leído), nunca STARRED (borraría tus destacados).
+
+    Antes esa regla era un comentario y la lista la construía quien llamaba.
+    Ahora se construye AQUÍ, filtrando el catálogo de etiquetas contra el
+    conjunto cerrado: por construcción no hay forma de colar nada más.
+
+    Añadir una etiqueta que ya está, o quitar una que no está, no hace nada en
+    Gmail. Reintentar siempre es seguro.
     """
-    cuerpo: dict[str, list[str]] = {"addLabelIds": [label_id]}
+    quitar = [
+        id_
+        for nombre, id_ in cache.items()
+        if nombre in NUESTRAS_ETIQUETAS and id_ != label_id
+    ]
+    if archivar:
+        quitar.append(INBOX)
 
-    sobrantes = [otra for otra in otras_nuestras if otra != label_id]
-    if sobrantes:
-        cuerpo["removeLabelIds"] = sobrantes
+    cuerpo: dict[str, list[str]] = {"addLabelIds": [label_id]}
+    if quitar:
+        cuerpo["removeLabelIds"] = quitar
 
     service.users().messages().modify(
         userId="me", id=gmail_message_id, body=cuerpo
@@ -202,16 +240,11 @@ def ejecutar(session: Session, service, accion: GmailAction, cache=None) -> Gmai
             if cache is None:
                 cache = etiquetas_existentes(service)
             label_id = asegurar_etiqueta(service, nombre, cache)
-            # Solo las nuestras. El filtro contra un conjunto CERRADO —los
-            # siete nombres del enum— es lo que garantiza que `removeLabelIds`
-            # jamás toque una etiqueta de la usuaria, ni INBOX, ni STARRED.
-            nuestras = [
-                id_
-                for nombre_etiqueta, id_ in cache.items()
-                if nombre_etiqueta in NUESTRAS_ETIQUETAS
-            ]
-            aplicar_etiqueta(service, email.gmail_message_id, label_id, nuestras)
-            detalle = {"etiqueta": nombre}
+            aplicar_etiqueta(service, email.gmail_message_id, label_id, cache)
+            # `archivado` se escribe en el audit log a propósito: el valor del
+            # enum se llama `apply_label` y no dice que además saque el correo
+            # de Recibidos. Auditar no debería depender de leerse el código.
+            detalle = {"etiqueta": nombre, "archivado": True}
         elif accion.action is GmailActionType.RESTORE_FROM_TRASH:
             # Solo vuelve a Recibidos si estaba ahí antes de que lo tiraran.
             # `raw_labels` es la foto de justo antes: un correo tirado

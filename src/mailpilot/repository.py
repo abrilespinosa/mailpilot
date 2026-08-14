@@ -610,12 +610,27 @@ def pedir_recuperacion(session: Session, email_id: int) -> bool:
     Gmail—, al recuperarlo aparecería sin etiquetar. Aquí se aprovecha que la
     decisión sigue guardada: no hay que volver a preguntar nada.
 
+    EL ORDEN IMPORTA, y por eso la etiqueta se encola PRIMERO.
+
+    Las acciones se ejecutan por `id`, así que la última en correr es la que
+    deja el correo como queda. Y `apply_label` archiva: quita INBOX. Al revés
+    —recuperar y luego etiquetar— el correo saldría de la papelera para
+    desaparecer de Recibidos en la misma tanda, que es justo lo contrario de
+    lo que pide quien pulsa "recuperar".
+
+    Recuperar es un gesto posterior a clasificar, y el gesto más reciente
+    manda.
+
     Devuelve False si ya estaba pedida.
     """
-    recuperacion = encolar_accion(
-        session, email_id, GmailActionType.RESTORE_FROM_TRASH
-    )
-    if recuperacion is None:
+    ya_pedida = session.execute(
+        select(GmailAction).where(
+            GmailAction.email_id == email_id,
+            GmailAction.action == GmailActionType.RESTORE_FROM_TRASH,
+            GmailAction.status == GmailActionStatus.PENDING,
+        )
+    ).scalar_one_or_none()
+    if ya_pedida is not None:
         return False
 
     decidida = session.execute(
@@ -639,6 +654,7 @@ def pedir_recuperacion(session: Session, email_id: int) -> bool:
                 session, email_id, GmailActionType.APPLY_LABEL, decidida.id
             )
 
+    encolar_accion(session, email_id, GmailActionType.RESTORE_FROM_TRASH)
     return True
 
 
