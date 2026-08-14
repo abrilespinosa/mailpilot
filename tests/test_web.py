@@ -632,6 +632,66 @@ def test_pedir_la_papelera_ya_lo_saca_de_pendientes(client, session):
     assert propuesta.final_category is None
 
 
+def test_categorizar_y_tirar_se_pueden_hacer_en_cualquier_orden(client, session):
+    """
+    LOS DOS EJES, EN LA MISMA TARJETA.
+
+    La API acepta categorizar y tirar en cualquier orden, y siempre lo hizo.
+    Lo que fallaba era la pantalla: al categorizar se borraba la tarjeta del
+    DOM, y el botón de papelera se iba dentro. Categorizar hacía imposible
+    tirar ese mismo correo, y un clic equivocado no tenía arreglo.
+
+    Aquí se comprueba por los dos lados: que el servidor acepta las dos
+    secuencias, y que la tarjeta trae los dos gestos a la vez.
+    """
+    a = propuesta_lista(session, message_id="a", subject="Primero categorizo")
+    b = propuesta_lista(session, message_id="b", subject="Primero tiro")
+
+    html = client.get("/").text
+    assert 'data-papelera="1"' in html          # el gesto de tirar
+    assert 'data-categoria="promociones"' in html   # el de categorizar
+
+    # categorizar -> tirar
+    assert client.post(f"/proposals/{a.id}/approve").status_code == 200
+    assert client.post(f"/emails/{a.email_id}/trash").status_code == 200
+
+    # tirar -> categorizar
+    assert client.post(f"/emails/{b.email_id}/trash").status_code == 200
+    assert client.post(f"/proposals/{b.id}/approve").status_code == 200
+
+    session.refresh(a)
+    session.refresh(b)
+    assert a.final_category is not None
+    assert b.final_category is not None
+
+    html = client.get("/").text
+    assert "Primero categorizo" not in html
+    assert "Primero tiro" not in html
+
+
+def test_la_pantalla_de_pendientes_no_borra_tarjetas(client, session):
+    """
+    La decisión de diseño, fijada en el sitio donde se puede romper sin querer.
+
+    Quitar la tarjeta al decidir parece inofensivo —y es lo que hace cualquier
+    bandeja— pero aquí hay DOS preguntas por correo (ADR 002). Quitarla en
+    cuanto se responde una se lleva la otra por delante.
+
+    Avanzar de pantalla es un botón, no una recarga automática: recargar sola
+    quitaba de delante tarjetas que aún se podían corregir.
+    """
+    propuesta_lista(session, message_id="a", subject="Sigo aquí")
+    propuesta_lista(session, message_id="b", subject="Y yo también")
+
+    # Con más pendientes que las mostradas: es cuando hay adónde avanzar.
+    html = client.get("/?limit=1").text
+
+    assert 'id="siguientes"' in html
+    assert "tarjeta.remove()" not in html
+    assert "location.reload(), 600" not in html
+    assert 'tarjeta.dataset.decidida = "1"' in html
+
+
 def test_lo_tirado_no_sale_en_clasificados(client, session):
     """Cada correo en una sola pestaña: la papelera manda sobre clasificado."""
     propuesta = propuesta_lista(session, subject="Clasificado y tirado")

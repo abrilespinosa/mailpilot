@@ -88,11 +88,18 @@
       transition: opacity .25s, transform .25s;
     }
     .propuesta.resuelta { opacity: 0; transform: translateY(-6px); }
-    /* Pedida para la papelera pero SIN categorizar todavía. No se quita: los
-       chips siguen ahí porque "qué es esto" sigue sin respuesta (ADR 002).
-       Atenuada para que se vea de un vistazo lo que queda por mirar. */
-    .propuesta.tirada { opacity: .45; }
-    .propuesta.tirada:hover { opacity: 1; }
+    /* Ya resuelta en alguno de los dos ejes: categorizada, tirada, o las dos.
+       NO se quita de la pantalla. Quitarla se llevaba por delante el otro
+       gesto —categorizar hacía desaparecer el botón de papelera— y dejaba sin
+       arreglo un clic equivocado. Atenuada para ver de un vistazo lo que
+       queda, y entera otra vez al pasar por encima. */
+    .propuesta.tirada, .propuesta.decidida { opacity: .5; }
+    .propuesta.tirada:hover, .propuesta.decidida:hover { opacity: 1; }
+    #siguientes {
+      font: inherit; cursor: pointer; padding: .6rem 1.4rem;
+      border-radius: 8px; border: 1px solid var(--acento);
+      background: var(--acento); color: #fff; font-weight: 600;
+    }
     .meta { display: flex; justify-content: space-between; gap: 1rem; font-size: .82rem; color: var(--suave); }
     .remitente { font-weight: 600; color: var(--texto); overflow-wrap: anywhere; }
     .asunto { font-weight: 600; margin: .45rem 0 .3rem; overflow-wrap: anywhere; }
@@ -403,7 +410,13 @@
       </p>
     {% elif total > mostrando %}
       <p class="vacio">
-        Mostrando {{ mostrando }} de {{ total }}. Decide estas y recarga.
+        Mostrando {{ mostrando }} de {{ total }}.
+      </p>
+      <!-- Aparece solo cuando no queda nada por resolver en la pantalla. Es un
+           botón y no una recarga automática a propósito: recargar sola te
+           quitaría de delante tarjetas que quizá ibas a corregir. -->
+      <p class="paginacion">
+        <button id="siguientes" hidden>siguientes {{ mostrando }} →</button>
       </p>
     {% endif %}
   {% endif %}
@@ -422,6 +435,7 @@ document.addEventListener("click", (evento) => {
   if (evento.target.id === "ejecutar") return aplicarEnGmail(evento.target);
   if (evento.target.id === "recuperar") return recuperarAtrasadas(evento.target);
   if (evento.target.id === "sincronizar") return sincronizar(evento.target);
+  if (evento.target.id === "siguientes") return location.reload();
 
   const rescate = evento.target.closest("[data-recuperar]");
   if (rescate) return recuperar(rescate);
@@ -459,25 +473,29 @@ async function pedirPapelera(tarjeta, boton) {
     boton.classList.add("pedida");
     boton.textContent = "🗑 pedida — se aplicará al pulsar «Aplicar en Gmail»";
 
-    // La tarjeta NO se quita: "¿qué es esto?" sigue sin responder y los chips
-    // tienen que seguir a mano. Pero deja de contar como pendiente de mirar,
-    // o una pantalla entera de correos tirados no avanzaría nunca.
+    // Igual que al categorizar: la tarjeta se queda, con los chips a mano.
+    // "Lo tiro" no responde a "qué es esto", y son dos preguntas (ADR 002).
     tarjeta.classList.add("tirada");
     tarjeta.dataset.tirada = "1";
-    avanzarSiNoQuedaNada();
+    revisarPantalla();
   } catch (error) {
     avisar(tarjeta, "No hay conexión con el servidor.");
   }
 }
 
-// Recarga cuando no queda nada por mirar en esta pantalla, para traer los
-// siguientes. Una tarjeta cuenta si no se ha decidido Y no se ha pedido tirar:
-// mirar solo si la lista está vacía dejaba colgada la pantalla en la que todo
-// se había mandado a la papelera sin categorizar.
-function avanzarSiNoQuedaNada() {
-  if (!document.querySelector(".propuesta:not([data-tirada])")) {
-    setTimeout(() => location.reload(), 600);
-  }
+// Enseña el botón de "siguientes" cuando ya no queda nada sin resolver.
+//
+// Una tarjeta está resuelta si se ha categorizado O si se ha pedido tirarla.
+// Y esto NO recarga solo a propósito: la versión que recargaba sola se llevaba
+// de delante tarjetas que aún se podían corregir, que es peor que un clic de
+// más.
+function revisarPantalla() {
+  const boton = document.getElementById("siguientes");
+  if (!boton) return;
+  const queda = document.querySelector(
+    ".propuesta:not([data-tirada]):not([data-decidida])"
+  );
+  boton.hidden = queda !== null;
 }
 
 async function recuperar(boton) {
@@ -606,7 +624,23 @@ async function decidir(tarjeta, accion, categoria) {
       body: accion === "modify" ? JSON.stringify({ category: categoria }) : null,
     });
 
-    if (respuesta.ok) return quitar(tarjeta);
+    if (respuesta.ok) {
+      // LA TARJETA NO SE QUITA.
+      //
+      // Antes sí, y se llevaba dentro el botón de papelera: categorizar hacía
+      // imposible tirar el mismo correo, aunque la API acepte las dos cosas en
+      // cualquier orden. También dejaba sin arreglo un clic equivocado.
+      //
+      // Ahora se marca y se queda. A partir de aquí la propuesta ya está
+      // decidida, así que los siguientes clics en un chip son rectificaciones:
+      // approve y modify devolverían 409 a propósito.
+      pintarElegida(tarjeta, await respuesta.json());
+      tarjeta.classList.add("decidida");
+      tarjeta.dataset.decidida = "1";
+      tarjeta.dataset.rectificar = "1";
+      delete tarjeta.dataset.ocupada;
+      return revisarPantalla();
+    }
 
     // 409 = alguien decidió esta misma propuesta en otra pestaña. El servidor
     // se niega a sobrescribir en silencio, así que aquí solo hay que contarlo.
@@ -618,14 +652,6 @@ async function decidir(tarjeta, accion, categoria) {
   }
 
   delete tarjeta.dataset.ocupada;
-}
-
-function quitar(tarjeta) {
-  tarjeta.classList.add("resuelta");
-  setTimeout(() => {
-    tarjeta.remove();
-    avanzarSiNoQuedaNada();
-  }, 250);
 }
 
 function avisar(tarjeta, mensaje) {
