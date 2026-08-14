@@ -147,6 +147,19 @@ server never opens a browser. They run on every push.
 
 ## Try it in one minute, with no Gmail account
 
+![The MailPilot dashboard: the model proposes "compras" for a medical appointment at 0.95
+confidence, the person corrects it to "personal", and the classified view keeps both answers
+— "the model said compras, you chose personal"](docs/demo.gif)
+
+Recorded against the demo data below. The first card is the one worth watching. The model's
+reasoning is sound — *a confirmation with a date, a time and a link to manage it* — and its
+answer is wrong anyway, at **0.95 confidence**. That is why nothing here auto-approves on a
+confidence threshold, and why the classified view keeps the model's answer next to yours:
+every disagreement is a correctly labelled mail obtained from ordinary use.
+
+The bar on top reads *two actions waiting, nothing has changed in Gmail yet*. Deciding and
+executing are separate steps, and only the second one touches your account.
+
 ```bash
 python scripts/seed_demo.py
 DATABASE_URL="$(grep -m1 '^DATABASE_URL' .env | cut -d= -f2-)_demo" uvicorn mailpilot.api:app

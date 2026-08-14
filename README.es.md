@@ -142,6 +142,20 @@ cerrada, que el servidor nunca abre el navegador. Se ejecutan en cada push.
 
 ## Probarlo en un minuto, sin cuenta de Gmail
 
+![El dashboard de MailPilot: el modelo propone «compras» para una cita médica con 0,95 de
+confianza, la persona lo corrige a «personal», y la vista de clasificados conserva las dos
+respuestas — «el modelo dijo compras, tú elegiste personal»](docs/demo.gif)
+
+Grabado sobre los datos de demostración de aquí abajo. La primera tarjeta es la que hay que
+mirar. El razonamiento del modelo es impecable —*una confirmación con fecha, hora y enlace
+para gestionarla*— y aun así su respuesta es falsa, con **0,95 de confianza**. Por eso aquí
+nada se aprueba solo por superar un umbral, y por eso la vista de clasificados guarda la
+respuesta del modelo junto a la tuya: cada desacuerdo es un correo bien etiquetado que sale
+del uso normal, sin etiquetar nada a mano.
+
+La barra de arriba dice *dos acciones esperando, todavía no ha cambiado nada en Gmail*.
+Decidir y ejecutar son pasos distintos, y solo el segundo toca tu cuenta.
+
 ```bash
 python scripts/seed_demo.py
 DATABASE_URL="$(grep -m1 '^DATABASE_URL' .env | cut -d= -f2-)_demo" uvicorn mailpilot.api:app
