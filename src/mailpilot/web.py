@@ -41,6 +41,10 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 def dashboard(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
+    ciego: bool = Query(
+        False,
+        description="Oculta lo que propuso el modelo. Para etiquetar sin anclaje.",
+    ),
     session: Session = Depends(get_session),
 ):
     """
@@ -50,6 +54,20 @@ def dashboard(
     por su cuenta. Así la página llega ya con contenido: no hay parpadeo de
     lista vacía, y si el JavaScript fallara la lista se seguiría viendo (solo
     dejarían de funcionar los botones).
+
+    MODO CIEGO (`?ciego=1`): oculta la categoría propuesta y la explicación del
+    modelo, dejando solo el correo y los siete botones.
+
+    No es una florituras de interfaz, es un instrumento de medida. Ver "el
+    modelo dice: promociones" ANTES de pensar la respuesta sesga hacia darle la
+    razón: aprobar es un clic y llevarle la contraria cuesta. Etiquetas así
+    sacadas inflan el acierto medido, que es exactamente el error que costó 18,7
+    puntos en la Fase 6.
+
+    En modo ciego cada clic es una etiqueta sin anclar, comparable con las que
+    salieron de `build_labels.py`. La decisión se guarda igual (`category`
+    conserva lo que dijo el modelo, `final_category` lo que elegiste), así que
+    la comparación se puede hacer después sin haberla visto antes.
     """
     pendientes = propuestas_pendientes(session, limit=limit)
     total_pendientes = session.execute(
@@ -67,5 +85,6 @@ def dashboard(
             "mostrando": len(pendientes),
             "categorias": list(Category),
             "stats": estadisticas(session),
+            "ciego": ciego,
         },
     )

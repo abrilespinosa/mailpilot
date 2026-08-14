@@ -132,6 +132,59 @@ def test_muestra_el_acierto_real(client, session):
 
 
 # ---------------------------------------------------------------------------
+# Modo ciego
+# ---------------------------------------------------------------------------
+
+
+def test_el_modo_ciego_oculta_lo_que_dijo_el_modelo(client, session):
+    """
+    En modo ciego no debe verse NADA de la respuesta del modelo: ni el chip
+    resaltado, ni el ✓, ni la explicación, ni el acierto acumulado.
+
+    No es cosmética. Ver la respuesta antes de pensar la tuya sesga hacia darle
+    la razón, y con etiquetas así el acierto medido sale inflado. Es el mismo
+    error que costó 18,7 puntos en la Fase 6, por otro camino.
+    """
+    propuesta_lista(session, categoria=Category.TRABAJO, razon="es una oferta de empleo")
+
+    html = client.get("/?ciego=1").text
+
+    assert "es una oferta de empleo" not in html
+    # Con espacio: así se busca el atributo renderizado `class="chip
+    # propuesta-actual"` y no la regla CSS `.chip.propuesta-actual`, que sigue
+    # estando en la hoja de estilos aunque no la use nadie.
+    assert "chip propuesta-actual" not in html
+    assert "✓" not in html
+    assert "acierto real" not in html
+
+
+def test_el_modo_ciego_sigue_dejando_decidir(client, session):
+    """
+    Se oculta la pista visual, no la funcionalidad: los siete botones siguen
+    ahí y el navegador sigue sabiendo si tu clic es aprobar o corregir.
+    """
+    propuesta_lista(session, categoria=Category.TRABAJO)
+
+    html = client.get("/?ciego=1").text
+
+    for categoria in Category:
+        assert f'data-categoria="{categoria.value}"' in html
+    assert 'data-propuesta="1"' in html
+    assert "Modo ciego" in html
+
+
+def test_el_modo_normal_sigue_enseñandolo_todo(client, session):
+    """El modo ciego se pide a propósito; por defecto no se activa."""
+    propuesta_lista(session, categoria=Category.TRABAJO, razon="es una oferta de empleo")
+
+    html = client.get("/").text
+
+    assert "es una oferta de empleo" in html
+    assert "propuesta-actual" in html
+    assert "Modo ciego" not in html
+
+
+# ---------------------------------------------------------------------------
 # Seguridad
 # ---------------------------------------------------------------------------
 

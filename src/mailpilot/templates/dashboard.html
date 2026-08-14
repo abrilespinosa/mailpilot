@@ -102,6 +102,12 @@
     }
 
     .aviso { margin-top: .75rem; font-size: .82rem; color: var(--no); }
+    .modo-ciego {
+      background: var(--tarjeta); border: 1px dashed var(--acento);
+      border-radius: 10px; padding: .8rem 1.1rem; margin-bottom: 1.5rem; font-size: .87rem;
+    }
+    .modo-ciego b { color: var(--acento); }
+    .modo-ciego a { color: var(--suave); }
     .vacio { text-align: center; color: var(--suave); padding: 3rem 1rem; }
     footer { margin-top: 2rem; font-size: .8rem; color: var(--suave); text-align: center; }
   </style>
@@ -111,15 +117,28 @@
   <h1>MailPilot</h1>
   <p class="lema">La IA propone. Tú decides. Nada se ejecuta sin tu visto bueno.</p>
 
+  {% if ciego %}
+    <div class="modo-ciego">
+      <b>Modo ciego.</b> No se te enseña lo que propuso el modelo: elige la
+      categoría que darías tú. Así tu etiqueta no queda anclada a su respuesta y
+      sirve para medir de verdad.
+      <br><a href="/">volver al modo normal</a>
+    </div>
+  {% endif %}
+
   <section class="stats">
     <div class="stat"><b>{{ stats.pendientes }}</b><span>pendientes</span></div>
     <div class="stat"><b>{{ stats.aprobadas }}</b><span>aprobadas</span></div>
     <div class="stat"><b>{{ stats.corregidas }}</b><span>corregidas</span></div>
     <div class="stat"><b>{{ stats.rechazadas }}</b><span>descartadas</span></div>
-    <div class="stat">
-      <b>{% if stats.acierto is none %}—{% else %}{{ "%.0f"|format(stats.acierto * 100) }} %{% endif %}</b>
-      <span>acierto real</span>
-    </div>
+    {# En modo ciego el acierto acumulado tampoco se enseña: ver cómo sube o
+       baja mientras etiquetas es otra forma de anclaje, más lenta pero igual. #}
+    {% if not ciego %}
+      <div class="stat">
+        <b>{% if stats.acierto is none %}—{% else %}{{ "%.0f"|format(stats.acierto * 100) }} %{% endif %}</b>
+        <span>acierto real</span>
+      </div>
+    {% endif %}
   </section>
 
   {% if not propuestas %}
@@ -141,7 +160,7 @@
         <p class="asunto">{{ p.email.subject }}</p>
         <p class="extracto">{{ p.email.snippet }}</p>
 
-        {% if p.reason %}
+        {% if p.reason and not ciego %}
           <p class="razon">
             <b>El modelo dice:</b> {{ p.reason }}
             {% if p.confidence is not none %}
@@ -151,11 +170,15 @@
         {% endif %}
 
         <div class="acciones">
+          {# `data-propuesta` sigue estando en modo ciego, porque el navegador
+             necesita saber si tu clic es "aprobar" o "corregir" para llamar al
+             endpoint correcto. Lo que se oculta es la PISTA VISUAL: ni el
+             resaltado, ni el ✓, ni la explicación. #}
           {% for categoria in categorias %}
-            <button class="chip {% if categoria == p.category %}propuesta-actual{% endif %}"
+            <button class="chip {% if categoria == p.category and not ciego %}propuesta-actual{% endif %}"
                     data-categoria="{{ categoria.value }}"
                     {% if categoria == p.category %}data-propuesta="1"{% endif %}>
-              {% if categoria == p.category %}✓ {% endif %}{{ categoria.value }}
+              {% if categoria == p.category and not ciego %}✓ {% endif %}{{ categoria.value }}
             </button>
           {% endfor %}
           <button class="descartar" data-rechazar="1">descartar</button>
