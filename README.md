@@ -60,6 +60,7 @@ detectar frases sospechosas, es que el modelo no tenga por dónde expresar una o
 | **Esquema en Ollama** | La generación se restringe a un esquema JSON durante el muestreo de tokens. No es una petición en el prompt. |
 | **Validación Pydantic** | Lo que no valide se descarta. Los campos que el modelo se invente se ignoran. |
 | **ENUM nativo de PostgreSQL** | Última barrera, y se aplica aunque alguien inserte saltándose la aplicación. |
+| **Autoescapado en la plantilla** | El asunto y la explicación del modelo se pintan como texto. Un correo con `<script>` se lee, no se ejecuta. |
 
 El modelo solo puede devolver **una de siete categorías, un número entre 0 y 1, y un
 texto de explicación**. No existe ningún campo por el que pedir una acción.
@@ -132,7 +133,7 @@ que se eligió qwen3. El criterio no es el porcentaje, es cuánto cuesta cada ti
 - [x] **Fase 5** — Clasificación local con Ollama
 - [x] **Fase 6** — Evaluación con conjuntos etiquetados
 - [x] **Fase 7** — Sistema de propuestas y decisiones
-- [ ] **Fase 8** — Dashboard para revisar y decidir
+- [x] **Fase 8** — Dashboard para revisar y decidir
 - [ ] **Fase 9** — Acciones reales sobre Gmail (etiquetar, mover a papelera)
 - [ ] **Fase 10+** — Seguridad avanzada, CI/CD, observabilidad
 
@@ -178,8 +179,16 @@ python scripts/propose.py              # generar propuestas
 uvicorn mailpilot.api:app --reload --app-dir src
 ```
 
-Documentación interactiva de la API en `http://localhost:8000/docs`, generada
-automáticamente a partir de los tipos.
+- `http://localhost:8000/` — **dashboard**: las propuestas pendientes, con siete
+  categorías por correo. Pulsar la que propuso el modelo es aceptarla; pulsar otra es
+  corregirle. La corrección se guarda junto a lo que dijo el modelo, sin sustituirlo.
+- `http://localhost:8000/docs` — documentación interactiva de la API, generada
+  automáticamente a partir de los tipos.
+
+El dashboard **no tiene endpoints de escritura propios**: sirve HTML y sus botones
+llaman a la misma API JSON que usaría cualquier otro cliente. Así las reglas viven en un
+único sitio y la pantalla no es un camino privilegiado. Un test comprueba que todas sus
+rutas son `GET`.
 
 ### Tests
 
@@ -210,7 +219,9 @@ src/mailpilot/
   schemas.py      esquemas de la API, separados de los modelos a propósito
   repository.py   persistencia, propuestas y decisiones
   classifier.py   clasificación con Ollama
-  api.py          FastAPI
+  api.py          FastAPI: la API JSON, único camino de escritura
+  web.py          dashboard: solo rutas GET, solo sirve HTML
+  templates/      dashboard.html
 migrations/       Alembic
 evaluation/       conjuntos etiquetados (los datos no se versionan)
 docs/decisions/   ADRs

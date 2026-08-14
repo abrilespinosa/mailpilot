@@ -11,13 +11,12 @@ Arrancar en desarrollo:
     uvicorn mailpilot.api:app --reload --app-dir src
 """
 
-from collections.abc import Iterator
-
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from mailpilot.db import SessionLocal
+from mailpilot import web
+from mailpilot.db import get_session
 from mailpilot.models import ActionProposal, Email, ProposalStatus
 from mailpilot.repository import PropuestaYaDecidida, decidir_propuesta, propuestas_pendientes
 from mailpilot.schemas import DecisionIn, EmailDetail, EmailPage, ProposalOut, ProposalPage
@@ -28,16 +27,10 @@ app = FastAPI(
     description="Capa de gestión inteligente sobre Gmail. Solo lectura por ahora.",
 )
 
-
-def get_session() -> Iterator[Session]:
-    """
-    Abre una sesión por petición y la cierra al terminar, pase lo que pase.
-
-    Se inyecta con Depends en vez de crearla dentro de cada endpoint: así los
-    tests pueden sustituirla por la sesión de prueba sin tocar los endpoints.
-    """
-    with SessionLocal() as session:
-        yield session
+# El dashboard (Fase 8) solo añade rutas GET: sirve HTML y nada más. Sus
+# botones llaman a los endpoints POST de este mismo archivo, que son el único
+# camino de escritura del sistema.
+app.include_router(web.router)
 
 
 @app.get("/health", tags=["sistema"])

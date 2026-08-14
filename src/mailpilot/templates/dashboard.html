@@ -1,0 +1,240 @@
+{#
+  Dashboard de MailPilot.
+
+  NOTA DE SEGURIDAD -- LEER ANTES DE TOCAR NADA AQUÍ:
+
+  Casi todo lo que se pinta en esta página viene de fuera: el asunto y el
+  remitente los escribe quien manda el correo, y `reason` lo escribe un LLM que
+  ha leído ese correo. Nada de eso es de fiar.
+
+  Jinja2 autoescapa por defecto en archivos .html, así que un asunto que sea
+  `<script>alert(1)</script>` se pinta como texto literal, no se ejecuta.
+
+  NUNCA usar el filtro `|safe` sobre estos campos. `|safe` significa
+  literalmente "confío en este HTML, píntalo tal cual", y sería la forma exacta
+  de convertir un correo hostil en código ejecutándose en el navegador.
+
+  El proyecto ya blinda la salida del modelo con un esquema cerrado, así que un
+  correo no puede hacer que el LLM proponga una acción. Esta es la otra mitad
+  del mismo problema: que tampoco pueda inyectar HTML en la pantalla.
+#}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MailPilot — revisar propuestas</title>
+  <style>
+    :root {
+      --fondo: #f6f7f9;
+      --tarjeta: #ffffff;
+      --borde: #e3e6ea;
+      --texto: #1b1f24;
+      --suave: #6b7280;
+      --acento: #2563eb;
+      --ok: #15803d;
+      --no: #b91c1c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fondo: #14171a; --tarjeta: #1c2024; --borde: #2c3238;
+        --texto: #e8eaed; --suave: #9aa3ad; --acento: #60a5fa;
+        --ok: #4ade80; --no: #f87171;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 2rem 1rem 4rem;
+      background: var(--fondo); color: var(--texto);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+    main { max-width: 780px; margin: 0 auto; }
+
+    h1 { font-size: 1.5rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+    .lema { color: var(--suave); margin: 0 0 1.5rem; font-size: .9rem; }
+
+    /* Barra de estadísticas */
+    .stats {
+      display: flex; flex-wrap: wrap; gap: 1.5rem;
+      padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+      background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 10px;
+    }
+    .stat b { display: block; font-size: 1.35rem; font-weight: 600; }
+    .stat span { color: var(--suave); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+
+    /* Tarjeta de propuesta */
+    .propuesta {
+      background: var(--tarjeta); border: 1px solid var(--borde);
+      border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: .9rem;
+      transition: opacity .25s, transform .25s;
+    }
+    .propuesta.resuelta { opacity: 0; transform: translateY(-6px); }
+    .meta { display: flex; justify-content: space-between; gap: 1rem; font-size: .82rem; color: var(--suave); }
+    .remitente { font-weight: 600; color: var(--texto); overflow-wrap: anywhere; }
+    .asunto { font-weight: 600; margin: .45rem 0 .3rem; overflow-wrap: anywhere; }
+    .extracto { color: var(--suave); font-size: .88rem; margin: 0 0 .9rem; overflow-wrap: anywhere; }
+
+    /* Lo que dijo el modelo */
+    .razon {
+      border-left: 3px solid var(--borde); padding: .35rem 0 .35rem .75rem;
+      margin: 0 0 1rem; font-size: .85rem; color: var(--suave); overflow-wrap: anywhere;
+    }
+    .razon b { color: var(--texto); font-weight: 600; }
+
+    /* Chips de categoría */
+    .acciones { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .chip {
+      font: inherit; font-size: .82rem; cursor: pointer;
+      padding: .35rem .7rem; border-radius: 999px;
+      border: 1px solid var(--borde); background: transparent; color: var(--texto);
+    }
+    .chip:hover { border-color: var(--acento); color: var(--acento); }
+    .chip.propuesta-actual {
+      background: var(--acento); border-color: var(--acento); color: #fff; font-weight: 600;
+    }
+    .chip.propuesta-actual:hover { color: #fff; opacity: .9; }
+    .descartar { margin-left: auto; border: none; background: none; color: var(--suave);
+                 font: inherit; font-size: .82rem; cursor: pointer; text-decoration: underline; }
+    .descartar:hover { color: var(--no); }
+    .propuesta[data-ocupada] .chip, .propuesta[data-ocupada] .descartar {
+      pointer-events: none; opacity: .5;
+    }
+
+    .aviso { margin-top: .75rem; font-size: .82rem; color: var(--no); }
+    .vacio { text-align: center; color: var(--suave); padding: 3rem 1rem; }
+    footer { margin-top: 2rem; font-size: .8rem; color: var(--suave); text-align: center; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>MailPilot</h1>
+  <p class="lema">La IA propone. Tú decides. Nada se ejecuta sin tu visto bueno.</p>
+
+  <section class="stats">
+    <div class="stat"><b>{{ stats.pendientes }}</b><span>pendientes</span></div>
+    <div class="stat"><b>{{ stats.aprobadas }}</b><span>aprobadas</span></div>
+    <div class="stat"><b>{{ stats.corregidas }}</b><span>corregidas</span></div>
+    <div class="stat"><b>{{ stats.rechazadas }}</b><span>descartadas</span></div>
+    <div class="stat">
+      <b>{% if stats.acierto is none %}—{% else %}{{ "%.0f"|format(stats.acierto * 100) }} %{% endif %}</b>
+      <span>acierto real</span>
+    </div>
+  </section>
+
+  {% if not propuestas %}
+    <p class="vacio">
+      No hay nada pendiente.<br>
+      Ejecuta <code>python scripts/ingest.py</code>, <code>classify.py</code>
+      y <code>propose.py</code> para traer correos nuevos.
+    </p>
+  {% else %}
+    {% for p in propuestas %}
+      {# data-id es lo único que necesita el JavaScript: el resto de la
+         decisión (qué se puede hacer, qué se guarda) lo aplica el servidor. #}
+      <article class="propuesta" data-id="{{ p.id }}">
+        <div class="meta">
+          <span class="remitente">{{ p.email.sender }}</span>
+          <span>{{ p.email.received_at.strftime("%d %b %Y, %H:%M") }}</span>
+        </div>
+
+        <p class="asunto">{{ p.email.subject }}</p>
+        <p class="extracto">{{ p.email.snippet }}</p>
+
+        {% if p.reason %}
+          <p class="razon">
+            <b>El modelo dice:</b> {{ p.reason }}
+            {% if p.confidence is not none %}
+              <em>(confianza {{ "%.2f"|format(p.confidence) }}, no es fiable como umbral)</em>
+            {% endif %}
+          </p>
+        {% endif %}
+
+        <div class="acciones">
+          {% for categoria in categorias %}
+            <button class="chip {% if categoria == p.category %}propuesta-actual{% endif %}"
+                    data-categoria="{{ categoria.value }}"
+                    {% if categoria == p.category %}data-propuesta="1"{% endif %}>
+              {% if categoria == p.category %}✓ {% endif %}{{ categoria.value }}
+            </button>
+          {% endfor %}
+          <button class="descartar" data-rechazar="1">descartar</button>
+        </div>
+      </article>
+    {% endfor %}
+
+    {% if total_pendientes > mostrando %}
+      <p class="vacio">
+        Mostrando {{ mostrando }} de {{ total_pendientes }}. Decide estas y recarga.
+      </p>
+    {% endif %}
+  {% endif %}
+
+  <footer>
+    Ninguna de estas decisiones toca Gmail todavía: solo se guardan en la base
+    de datos. La ejecución real llega en la Fase 9.
+  </footer>
+</main>
+
+<script>
+// El dashboard NO tiene endpoints propios de escritura: habla con la misma API
+// JSON que usaría cualquier otro cliente. Si esta página desapareciera, las
+// reglas seguirían intactas en el servidor.
+document.addEventListener("click", (evento) => {
+  const boton = evento.target.closest(".chip, .descartar");
+  if (!boton) return;
+
+  const tarjeta = boton.closest(".propuesta");
+  if (tarjeta.dataset.ocupada) return;   // evita el doble clic nervioso
+
+  if (boton.dataset.rechazar) return decidir(tarjeta, "reject");
+  // Pulsar la categoría que ya proponía el modelo es aceptarla; pulsar otra
+  // es corregirle. Un solo gesto para las dos cosas.
+  if (boton.dataset.propuesta) return decidir(tarjeta, "approve");
+  return decidir(tarjeta, "modify", boton.dataset.categoria);
+});
+
+async function decidir(tarjeta, accion, categoria) {
+  tarjeta.dataset.ocupada = "1";
+
+  try {
+    const respuesta = await fetch(`/proposals/${tarjeta.dataset.id}/${accion}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: accion === "modify" ? JSON.stringify({ category: categoria }) : null,
+    });
+
+    if (respuesta.ok) return quitar(tarjeta);
+
+    // 409 = alguien decidió esta misma propuesta en otra pestaña. El servidor
+    // se niega a sobrescribir en silencio, así que aquí solo hay que contarlo.
+    avisar(tarjeta, respuesta.status === 409
+      ? "Ya la habías decidido en otra pestaña. Recarga para verla actualizada."
+      : `No se pudo guardar (error ${respuesta.status}).`);
+  } catch (error) {
+    avisar(tarjeta, "No hay conexión con el servidor. ¿Sigue vivo uvicorn?");
+  }
+
+  delete tarjeta.dataset.ocupada;
+}
+
+function quitar(tarjeta) {
+  tarjeta.classList.add("resuelta");
+  setTimeout(() => {
+    tarjeta.remove();
+    if (!document.querySelector(".propuesta")) location.reload();
+  }, 250);
+}
+
+function avisar(tarjeta, mensaje) {
+  let aviso = tarjeta.querySelector(".aviso");
+  if (!aviso) {
+    aviso = document.createElement("p");
+    aviso.className = "aviso";
+    tarjeta.append(aviso);
+  }
+  aviso.textContent = mensaje;   // textContent, no innerHTML: ver nota de arriba
+}
+</script>
+</body>
+</html>

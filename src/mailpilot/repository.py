@@ -324,6 +324,41 @@ def decidir_propuesta(
     return propuesta
 
 
+def estadisticas(session: Session) -> dict:
+    """
+    Resumen de lo decidido hasta ahora, para la cabecera del dashboard.
+
+    `acierto` es el porcentaje de veces que la usuaria aceptó lo que propuso el
+    modelo, contando solo aprobadas y corregidas: las rechazadas no dicen si la
+    categoría era buena o mala, así que no entran en el cálculo.
+
+    Ojo con este número: NO es comparable con el 73,8 % de la Fase 6. Aquel se
+    midió sobre correos elegidos al azar; este sale de los correos que a la
+    usuaria le apeteció revisar, que no son una muestra representativa. Sirve
+    para ver la tendencia, no para presumir.
+    """
+    filas = session.execute(
+        select(ActionProposal.status, func.count())
+        .group_by(ActionProposal.status)
+    ).all()
+
+    conteo = {estado: total for estado, total in filas}
+
+    aprobadas = conteo.get(ProposalStatus.APPROVED, 0)
+    corregidas = conteo.get(ProposalStatus.MODIFIED, 0)
+    decididas_con_categoria = aprobadas + corregidas
+
+    return {
+        "pendientes": conteo.get(ProposalStatus.PENDING, 0),
+        "aprobadas": aprobadas,
+        "corregidas": corregidas,
+        "rechazadas": conteo.get(ProposalStatus.REJECTED, 0),
+        "acierto": (
+            aprobadas / decididas_con_categoria if decididas_con_categoria else None
+        ),
+    }
+
+
 def correcciones(session: Session) -> list[ActionProposal]:
     """
     Propuestas donde la usuaria eligió algo distinto a lo que dijo el modelo.
