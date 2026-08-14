@@ -5,26 +5,34 @@ Requiere Ollama corriendo y el modelo descargado. Mide el tiempo por correo,
 que es el dato que decide si un modelo es viable o no.
 """
 
+import argparse
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from mailpilot.classifier import OllamaClient, classify_email
+from mailpilot.classifier import PROMPT_VERSION, OllamaClient, classify_email
 from mailpilot.db import SessionLocal
 from mailpilot.gmail import EmailData
 from mailpilot.repository import emails_sin_clasificar, save_classification
 
-LIMIT = 20
-
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--limit", type=int, default=20, help="cuántos clasificar (por defecto 20)"
+    )
+    args = parser.parse_args()
+
     client = OllamaClient()
-    print(f"Modelo: {client.model}  ({client.base_url})\n")
+    # El prompt en pantalla no es decorativo: una clasificación guardada no
+    # dice con qué prompt se hizo, y los prompts cambian. Sin este dato es
+    # fácil acabar revisando en el dashboard la salida de una versión vieja.
+    print(f"Modelo: {client.model}  ({client.base_url})  prompt: {PROMPT_VERSION}\n")
 
     with SessionLocal() as session:
-        pendientes = emails_sin_clasificar(session, limit=LIMIT)
+        pendientes = emails_sin_clasificar(session, limit=args.limit)
 
         if not pendientes:
             print("No hay correos sin clasificar.")
