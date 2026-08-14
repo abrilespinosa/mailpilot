@@ -34,15 +34,23 @@ def modulos():
 # ---------------------------------------------------------------------------
 
 
-def test_solo_existen_dos_acciones(f=None):
+def test_las_acciones_posibles_son_exactamente_estas():
     """
     Enum cerrado, la misma defensa que se usa contra la prompt injection.
 
     No se trata de vigilar que nadie pida enviar o borrar: es que no hay
-    ninguna forma de expresarlo. Añadir un valor aquí es una decisión
-    deliberada que rompe este test.
+    ninguna forma de expresarlo.
+
+    La lista creció de dos a tres al añadir `restore_from_trash`, y eso obligó
+    a venir aquí a cambiarlo a mano. Es exactamente lo que tiene que pasar:
+    ampliar lo que MailPilot puede hacerle a tu cuenta no puede colarse en un
+    commit sin que nadie lo mire.
     """
-    assert {a.value for a in GmailActionType} == {"apply_label", "move_to_trash"}
+    assert {a.value for a in GmailActionType} == {
+        "apply_label",
+        "move_to_trash",
+        "restore_from_trash",   # deshace; es la única que no quita nada
+    }
 
 
 @pytest.mark.parametrize("prohibido", ["send", "delete", "forward", "reply", "draft"])
@@ -123,6 +131,7 @@ def test_ningun_modulo_llama_a_enviar_ni_a_borrar():
 ESCRITURAS = {
     r"\.modify\s*\(": "modificar etiquetas de un mensaje",
     r"\.trash\s*\(": "mover a papelera",
+    r"\.untrash\s*\(": "sacar de la papelera",
     r"labels\(\)\s*\.\s*create": "crear una etiqueta",
 }
 

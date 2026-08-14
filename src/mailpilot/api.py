@@ -35,6 +35,7 @@ from mailpilot.repository import (
     encolar_etiquetas_atrasadas,
     sincronizar_papelera,
     encolar_accion,
+    pedir_recuperacion,
     propuestas_pendientes,
     rectificar_decision,
 )
@@ -269,6 +270,23 @@ def request_trash(
 
     # Ya estaba pedida: no es un error, es un segundo clic.
     return {"pedida": accion is not None, "accion": "move_to_trash"}
+
+
+@app.post("/emails/{email_id}/restore", response_model=ActionOut, tags=["acciones"])
+def request_restore(email_id: int, session: Session = Depends(get_session)) -> dict:
+    """
+    Pide sacar un correo de la papelera y devolverle su categoría.
+
+    Como todo lo demás, solo deja la petición: Gmail no cambia hasta pulsar
+    "Aplicar en Gmail". Es la única acción del proyecto que no quita nada.
+    """
+    if session.get(Email, email_id) is None:
+        raise HTTPException(status_code=404, detail="Correo no encontrado")
+
+    return {
+        "pedida": pedir_recuperacion(session, email_id),
+        "accion": "restore_from_trash",
+    }
 
 
 @app.post("/actions/sync-trash", response_model=SyncOut, tags=["acciones"])

@@ -362,3 +362,101 @@ def test_tirar_un_correo_no_cambia_las_estadisticas_de_acierto(session, service)
     gmail_actions.ejecutar(session, service, accion)
 
     assert estadisticas(session) == antes
+
+
+# ---------------------------------------------------------------------------
+# Recuperar de la papelera
+# ---------------------------------------------------------------------------
+
+
+def test_recuperar_saca_de_la_papelera(session, service):
+    email, _ = preparar_decidida(session)
+    email.en_papelera = True
+    session.commit()
+    accion = encolar(session, email, GmailActionType.RESTORE_FROM_TRASH)
+
+    gmail_actions.ejecutar(session, service, accion)
+
+    assert service.messages().untrash_calls[0]["id"] == email.gmail_message_id
+    assert email.en_papelera is False
+    assert accion.detail["recuperado"] is True
+
+
+def test_recuperar_devuelve_a_recibidos_solo_si_estaba_ahi(session, service):
+    """
+    `untrash` únicamente quita la etiqueta TRASH: NO devuelve el correo a
+    Recibidos, porque Gmail le quitó INBOX al tirarlo. Sin añadirlo, el correo
+    saldría de la papelera y quedaría archivado, imposible de encontrar.
+
+    Se mira `raw_labels`, que es la foto de justo antes: un correo tirado
+    desaparece de la ingestión, así que ese campo nunca se sobrescribió.
+    """
+    email, _ = preparar_decidida(session)          # make_email trae INBOX
+    email.en_papelera = True
+    session.commit()
+    accion = encolar(session, email, GmailActionType.RESTORE_FROM_TRASH)
+
+    gmail_actions.ejecutar(session, service, accion)
+
+    assert service.messages().modify_calls[-1]["body"] == {"addLabelIds": ["INBOX"]}
+    assert accion.detail["a_recibidos"] is True
+
+
+def test_recuperar_algo_archivado_no_lo_desarchiva(session, service):
+    """Hacer más de lo que se pidió también es un error."""
+    upsert_emails(session, [make_email("a", raw_labels=["CATEGORY_PROMOTIONS"])])
+    email = session.execute(select(Email)).scalar_one()
+    email.en_papelera = True
+    session.commit()
+    accion = encolar(session, email, GmailActionType.RESTORE_FROM_TRASH)
+
+    gmail_actions.ejecutar(session, service, accion)
+
+    assert service.messages().untrash_calls
+    assert service.messages().modify_calls == []
+    assert accion.detail["a_recibidos"] is False
+
+
+def test_recuperar_devuelve_tambien_su_categoria(session, service):
+    """
+    Lo que pidió la usuaria: al recuperar, el correo vuelve CON su categoría.
+
+    Importa sobre todo en lo que se tiró a mano en Gmail antes de que se
+    aplicara la etiqueta: sin esto reaparecería sin clasificar, aunque la
+    decisión llevara semanas guardada.
+    """
+    from mailpilot.repository import acciones_pendientes, pedir_recuperacion
+
+    email, propuesta = preparar_decidida(
+        session, categoria=Category.PROMOCIONES, elegida=Category.TRABAJO
+    )
+    # Se tiró antes de aplicar nada: la etiqueta pendiente se descarta.
+    for a in session.execute(select(GmailAction)).scalars().all():
+        session.delete(a)
+    email.en_papelera = True
+    session.commit()
+
+    assert pedir_recuperacion(session, email.id) is True
+
+    tipos = {a.action for a in acciones_pendientes(session)}
+    assert tipos == {
+        GmailActionType.RESTORE_FROM_TRASH,
+        GmailActionType.APPLY_LABEL,
+    }
+
+    for accion in acciones_pendientes(session):
+        gmail_actions.ejecutar(session, service, accion)
+
+    assert email.en_papelera is False
+    assert service.labels().create_calls[0]["body"]["name"] == "Trabajo"
+
+
+def test_pedir_recuperacion_dos_veces_no_duplica(session):
+    from mailpilot.repository import pedir_recuperacion
+
+    email, _ = preparar_decidida(session)
+    email.en_papelera = True
+    session.commit()
+
+    assert pedir_recuperacion(session, email.id) is True
+    assert pedir_recuperacion(session, email.id) is False

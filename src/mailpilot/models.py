@@ -85,6 +85,12 @@ class GmailActionType(str, enum.Enum):
     - `apply_label`: crea (si hace falta) y aplica una etiqueta de MailPilot.
       Nunca toca ni borra las etiquetas que la usuaria ya tenía.
     - `move_to_trash`: papelera de Gmail, reversible 30 días.
+    - `restore_from_trash`: saca de la papelera. La única que no quita nada:
+      deshace, y por eso ampliar la lista para incluirla es defendible.
+
+    Ampliar este enum tiene que ser SIEMPRE una decisión deliberada. Hay un
+    test que fija sus valores exactos, así que añadir uno sin querer es
+    imposible: hay que ir a cambiarlo a mano.
 
     El borrado permanente además es imposible por scope: exige
     `https://mail.google.com/`, que no pedimos. Enviar correo sí lo permitiría
@@ -94,6 +100,7 @@ class GmailActionType(str, enum.Enum):
 
     APPLY_LABEL = "apply_label"
     MOVE_TO_TRASH = "move_to_trash"
+    RESTORE_FROM_TRASH = "restore_from_trash"
 
 
 class GmailActionStatus(str, enum.Enum):

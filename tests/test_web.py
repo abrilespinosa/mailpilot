@@ -635,3 +635,45 @@ def test_las_tres_pestanas_estan_siempre(client, session):
         assert 'href="/"' in html
         assert 'href="/clasificados"' in html
         assert 'href="/papelera"' in html
+
+
+def test_la_papelera_ofrece_recuperar(client, session):
+    propuesta = propuesta_lista(session, categoria=Category.PROMOCIONES)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+    en_papelera(session, propuesta.email_id)
+
+    html = client.get("/papelera").text
+
+    assert 'data-recuperar="1"' in html
+    # Dice de antemano qué va a pasar: dónde vuelve y con qué etiqueta.
+    assert "a Recibidos" in html
+    assert "con su etiqueta" in html
+
+
+def test_recuperar_encola_las_dos_acciones(client, session):
+    propuesta = propuesta_lista(session)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+    en_papelera(session, propuesta.email_id)
+
+    respuesta = client.post(f"/emails/{propuesta.email_id}/restore")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["pedida"] is True
+    tipos = {a.action for a in session.execute(select(GmailAction)).scalars()}
+    assert GmailActionType.RESTORE_FROM_TRASH in tipos
+
+
+def test_recuperar_un_correo_inexistente(client):
+    assert client.post("/emails/99999/restore").status_code == 404
+
+
+def test_recuperar_no_lo_saca_de_la_lista_hasta_aplicarlo(client, session):
+    """
+    Sigue en la papelera hasta pulsar «Aplicar en Gmail». Quitarlo antes diría
+    que ya está recuperado cuando en Gmail no ha pasado nada.
+    """
+    propuesta = propuesta_lista(session, subject="Lo quiero de vuelta")
+    en_papelera(session, propuesta.email_id)
+    client.post(f"/emails/{propuesta.email_id}/restore")
+
+    assert "Lo quiero de vuelta" in client.get("/papelera").text

@@ -18,7 +18,12 @@ aplicada y seguridad.
 - El contenido de los correos **nunca sale de la máquina**. Todo el procesamiento de
   IA es local, con [Ollama](https://ollama.com). No se usa ninguna API de IA externa.
 - La única acción destructiva contemplada es **mover a papelera**, reversible 30 días
-  en Gmail. El borrado permanente está fuera del alcance del proyecto, no solo del MVP.
+  en Gmail, y se puede deshacer desde el propio dashboard. El borrado permanente está
+  fuera del alcance del proyecto, no solo del MVP: además el scope que se pide
+  (`gmail.modify`) **no lo permitiría**, así que no depende de nuestra disciplina.
+- **MailPilot no puede enviar correo.** Esa garantía sí depende del código, porque
+  `gmail.modify` lo permitiría: la sostienen un enum cerrado de tres acciones, un
+  único módulo autorizado a escribir, y un test que rastrea el código fuente.
 
 ---
 
@@ -47,6 +52,9 @@ aplicada y seguridad.
 4. **Propuesta** — cada clasificación genera una propuesta pendiente.
 5. **Decisión** — se aprueba, se corrige o se rechaza. Lo que propuso el modelo se
    conserva intacto junto a lo que eligió la persona.
+6. **Ejecución** — las acciones aprobadas se encolan y **solo cambian Gmail al pulsar
+   «Aplicar»**. Ese paso intermedio es lo que hace revisable una acción destructiva:
+   se puede ver qué está a punto de pasar antes de que pase.
 
 ---
 
@@ -148,7 +156,7 @@ que se eligió qwen3. El criterio no es el porcentaje, es cuánto cuesta cada ti
 - [x] **Fase 6** — Evaluación con conjuntos etiquetados
 - [x] **Fase 7** — Sistema de propuestas y decisiones
 - [x] **Fase 8** — Dashboard para revisar y decidir
-- [ ] **Fase 9** — Acciones reales sobre Gmail (etiquetar, mover a papelera)
+- [x] **Fase 9** — Acciones reales sobre Gmail (etiquetar, papelera, recuperar)
 - [ ] **Fase 10+** — Seguridad avanzada, CI/CD, observabilidad
 
 ---
@@ -234,6 +242,7 @@ src/mailpilot/
   repository.py   persistencia, propuestas y decisiones
   classifier.py   clasificación con Ollama
   api.py          FastAPI: la API JSON, único camino de escritura
+  gmail_actions.py  el ÚNICO módulo que escribe en Gmail
   web.py          dashboard: solo rutas GET, solo sirve HTML
   templates/      dashboard.html
 migrations/       Alembic
@@ -269,6 +278,10 @@ consecuencias.
 - [ADR 001 — Categorías de clasificación](docs/decisions/001-categorias-de-clasificacion.md):
   por qué siete, por qué un enum cerrado, y cómo cambiaron las definiciones al medirlas
   contra correo real.
+- [ADR 003 — Subir el scope a `gmail.modify`](docs/decisions/003-scope-gmail-modify.md):
+  por qué el scope mínimo ES la barrera de seguridad. `gmail.modify` no puede borrar
+  para siempre —eso lo impide Google—, pero sí podría enviar correo: esa garantía la
+  sostiene un test que rastrea el código fuente.
 - [ADR 002 — Tirar no es corregir](docs/decisions/002-tirar-no-es-corregir.md): por qué
   «esto es promociones» y «esto lo tiro» son dos decisiones separadas. Mezclarlas subiría
   el acierto medido 3,3 puntos borrando el 42 % de la muestra.

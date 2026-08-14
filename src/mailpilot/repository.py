@@ -576,6 +576,51 @@ def decisiones_sin_aplicar(session: Session) -> int:
     ).scalar_one()
 
 
+def pedir_recuperacion(session: Session, email_id: int) -> bool:
+    """
+    Pide sacar un correo de la papelera Y devolverle su categoría.
+
+    Son dos acciones porque son dos cosas distintas en Gmail, y encolar las dos
+    juntas es lo que hace que "recuperar" signifique lo que una persona espera:
+    el correo vuelve, y vuelve organizado.
+
+    La etiqueta hace falta más de lo que parece. Si el correo se tiró ANTES de
+    que se aplicara su categoría —el caso de todo lo que se tiró a mano en
+    Gmail—, al recuperarlo aparecería sin etiquetar. Aquí se aprovecha que la
+    decisión sigue guardada: no hay que volver a preguntar nada.
+
+    Devuelve False si ya estaba pedida.
+    """
+    recuperacion = encolar_accion(
+        session, email_id, GmailActionType.RESTORE_FROM_TRASH
+    )
+    if recuperacion is None:
+        return False
+
+    decidida = session.execute(
+        select(ActionProposal).where(
+            ActionProposal.email_id == email_id,
+            ActionProposal.final_category.is_not(None),
+        )
+    ).scalars().first()
+
+    if decidida is not None:
+        ya_etiquetado = session.execute(
+            select(GmailAction).where(
+                GmailAction.email_id == email_id,
+                GmailAction.action == GmailActionType.APPLY_LABEL,
+                GmailAction.status == GmailActionStatus.EXECUTED,
+            )
+        ).scalar_one_or_none()
+
+        if ya_etiquetado is None:
+            encolar_accion(
+                session, email_id, GmailActionType.APPLY_LABEL, decidida.id
+            )
+
+    return True
+
+
 def acciones_pendientes(session: Session, limit: int = 50) -> list[GmailAction]:
     """Acciones pedidas y todavía sin ejecutar, en el orden en que se pidieron."""
     return list(

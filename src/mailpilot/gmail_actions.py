@@ -142,6 +142,27 @@ def aplicar_etiqueta(
     ).execute()
 
 
+def restaurar_de_papelera(service, gmail_message_id: str, devolver_a_inbox: bool) -> None:
+    """
+    Saca un mensaje de la papelera. La única acción que no quita nada.
+
+    `untrash` solo borra la etiqueta TRASH. NO devuelve el correo a Recibidos,
+    porque Gmail le quitó INBOX al tirarlo: sin más, el correo saldría de la
+    papelera pero quedaría archivado, y buscarlo sería un misterio.
+
+    Por eso `devolver_a_inbox` se decide fuera, mirando si el correo TENÍA
+    INBOX antes de que lo tiraran (lo sabemos: está en `raw_labels`). Así
+    recuperar un correo archivado no lo desarchiva de propina, que sería hacer
+    más de lo que nadie pidió.
+    """
+    service.users().messages().untrash(userId="me", id=gmail_message_id).execute()
+
+    if devolver_a_inbox:
+        service.users().messages().modify(
+            userId="me", id=gmail_message_id, body={"addLabelIds": ["INBOX"]}
+        ).execute()
+
+
 def mover_a_papelera(service, gmail_message_id: str) -> None:
     """
     Mueve un mensaje a la papelera de Gmail. Reversible 30 días.
@@ -191,6 +212,15 @@ def ejecutar(session: Session, service, accion: GmailAction, cache=None) -> Gmai
             ]
             aplicar_etiqueta(service, email.gmail_message_id, label_id, nuestras)
             detalle = {"etiqueta": nombre}
+        elif accion.action is GmailActionType.RESTORE_FROM_TRASH:
+            # Solo vuelve a Recibidos si estaba ahí antes de que lo tiraran.
+            # `raw_labels` es la foto de justo antes: un correo tirado
+            # desaparece de la ingestión, así que nunca se sobrescribió.
+            volvia = "INBOX" in (email.raw_labels or [])
+            restaurar_de_papelera(service, email.gmail_message_id, volvia)
+            email.en_papelera = False
+            detalle = {"recuperado": True, "a_recibidos": volvia}
+
         else:
             mover_a_papelera(service, email.gmail_message_id)
             # El estado actual se marca aquí mismo para que la pestaña de

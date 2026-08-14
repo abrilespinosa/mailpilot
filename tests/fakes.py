@@ -108,6 +108,9 @@ class FakeWritableMessages(FakeMessagesResource):
         super().__init__(**kwargs)
         self.modify_calls: list[dict] = []
         self.trash_calls: list[dict] = []
+        # `untrash` es una capacidad NUEVA (recuperar de la papelera). El doble
+        # sigue SIN tener send() ni delete(): esa ausencia es intencionada.
+        self.untrash_calls: list[dict] = []
         self.fallar_con = fallar_con
 
     def modify(self, **kwargs) -> _FakeRequest:
@@ -121,6 +124,12 @@ class FakeWritableMessages(FakeMessagesResource):
             raise self.fallar_con
         self.trash_calls.append(kwargs)
         return _FakeRequest({"id": kwargs["id"], "labelIds": ["TRASH"]})
+
+    def untrash(self, **kwargs) -> _FakeRequest:
+        if self.fallar_con:
+            raise self.fallar_con
+        self.untrash_calls.append(kwargs)
+        return _FakeRequest({"id": kwargs["id"], "labelIds": []})
 
 
 class FakeLabels:
@@ -163,3 +172,4 @@ class FakeWritableService:
 
     def labels(self):
         return self._labels
+

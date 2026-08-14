@@ -93,3 +93,42 @@ Reglas que se derivan:
   y pendiente, que se documentará en su ADR cuando toque.
 - El borrado permanente sigue fuera del alcance del proyecto. Lo único
   destructivo permitido es mover a papelera.
+
+
+## Revisión 2026-08-14 — recuperar de la papelera
+
+La papelera dejó de ser un camino de ida. Se añadió `restore_from_trash` al
+enum de acciones, que pasa de dos valores a tres.
+
+**Ampliar ese enum es lo que este proyecto intenta que cueste**, así que la
+justificación tiene que estar escrita: es la única de las tres acciones que
+**no quita nada**. Deshace. Un bug en `apply_label` puede desetiquetar algo y
+uno en `move_to_trash` puede tirar lo que no toca; el peor fallo posible en
+`restore_from_trash` es sacar de la papelera un correo que sobraba.
+
+El test `test_las_acciones_posibles_son_exactamente_estas` fija la lista, así
+que hubo que ir a cambiarlo a mano. Es el comportamiento buscado: ampliar lo
+que MailPilot puede hacerle a una cuenta no puede colarse en un commit sin que
+nadie lo mire.
+
+### Recuperar son DOS acciones, no una
+
+Porque en Gmail son dos cosas distintas:
+
+1. `untrash` — quita la etiqueta TRASH. **No devuelve el correo a Recibidos**:
+   Gmail le quitó INBOX al tirarlo. Sin más, el correo saldría de la papelera y
+   quedaría archivado, imposible de encontrar.
+2. `apply_label` — le devuelve su categoría.
+
+La segunda importa más de lo que parece en los correos que se tiraron a mano
+en Gmail **antes** de que se aplicara su etiqueta: sin ella reaparecerían sin
+clasificar, aunque la decisión lleve semanas guardada en la base de datos.
+
+### Volver a Recibidos, pero solo si se estaba
+
+Se decide mirando `raw_labels`, que es la foto de justo antes de tirarlo: un
+correo en la papelera desaparece de la ingestión, así que ese campo nunca se
+sobrescribió.
+
+Recuperar un correo que ya estaba archivado y desarchivarlo de propina sería
+hacer más de lo que nadie pidió, y hacer de más también es un error.

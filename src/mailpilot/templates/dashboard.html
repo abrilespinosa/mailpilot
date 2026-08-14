@@ -281,6 +281,17 @@
               Sin clasificar.
             {% endif %}
           </p>
+
+          <div class="papelera-fila">
+            <button class="papelera" data-recuperar="1"
+                    data-email-id="{{ correo.id }}">↩ recuperar</button>
+            <span class="papelera-nota">
+              vuelve
+              {%- if "INBOX" in (correo.raw_labels or []) %} a Recibidos{% else %} sin archivar{% endif %}
+              {%- if correo.proposals and correo.proposals[0].final_category %},
+              con su etiqueta <b>{{ correo.proposals[0].final_category.value }}</b>{% endif %}
+            </span>
+          </div>
         </article>
       {% endfor %}
 
@@ -407,6 +418,9 @@ document.addEventListener("click", (evento) => {
   if (evento.target.id === "recuperar") return recuperarAtrasadas(evento.target);
   if (evento.target.id === "sincronizar") return sincronizar(evento.target);
 
+  const rescate = evento.target.closest("[data-recuperar]");
+  if (rescate) return recuperar(rescate);
+
   const boton = evento.target.closest(".chip, .descartar, .papelera");
   if (!boton) return;
 
@@ -441,6 +455,21 @@ async function pedirPapelera(tarjeta, boton) {
     boton.textContent = "🗑 pedida — se aplicará al pulsar «Aplicar en Gmail»";
   } catch (error) {
     avisar(tarjeta, "No hay conexión con el servidor.");
+  }
+}
+
+async function recuperar(boton) {
+  boton.disabled = true;
+  try {
+    const respuesta = await fetch(`/emails/${boton.dataset.emailId}/restore`,
+                                  { method: "POST" });
+    if (!respuesta.ok) throw new Error(respuesta.status);
+    // No desaparece de la lista: sigue en la papelera hasta que se aplique.
+    boton.classList.add("pedida");
+    boton.textContent = "↩ pedida — se aplicará al pulsar «Aplicar en Gmail»";
+  } catch (error) {
+    boton.disabled = false;
+    boton.textContent = "↩ no se pudo. Reintentar";
   }
 }
 
