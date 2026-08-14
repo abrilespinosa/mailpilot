@@ -36,6 +36,30 @@ router = APIRouter(tags=["dashboard"])
 # ejecuta. Ver la nota larga en templates/dashboard.html.
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
+STATIC_DIR = Path(__file__).parent / "static"
+
+# Por orden de preferencia: un SVG se ve nítido en cualquier pantalla.
+EXTENSIONES = ("svg", "png", "webp", "jpg", "jpeg", "gif")
+
+
+def buscar_asset(nombre: str) -> str | None:
+    """
+    Devuelve la URL de `static/<nombre>.<ext>` si existe, o None.
+
+    Se consulta en cada petición, no una vez al arrancar. Cuesta un `stat` por
+    imagen (nada) y a cambio basta con recargar la página tras añadir un
+    archivo: `uvicorn --reload` solo vigila los `.py`, así que si esto se
+    calculara al importar el módulo habría que reiniciar el servidor para ver
+    un logo nuevo.
+
+    Devolver None en vez de una ruta fija evita el icono de imagen rota: la
+    plantilla simplemente no pinta la etiqueta.
+    """
+    for extension in EXTENSIONES:
+        if (STATIC_DIR / f"{nombre}.{extension}").is_file():
+            return f"/static/{nombre}.{extension}"
+    return None
+
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 def dashboard(
@@ -86,5 +110,7 @@ def dashboard(
             "categorias": list(Category),
             "stats": estadisticas(session),
             "ciego": ciego,
+            "logo": buscar_asset("logo"),
+            "favicon": buscar_asset("favicon"),
         },
     )

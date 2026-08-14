@@ -24,21 +24,34 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MailPilot — revisar propuestas</title>
+  {% if favicon %}<link rel="icon" href="{{ favicon }}">{% endif %}
   <style>
+    /* Los dos colores de la marca. Todo lo demás sale de ellos: los grises
+       llevan una pizca de azul para que no desentonen con el marino. */
     :root {
-      --fondo: #f6f7f9;
+      --azul:   #1D4ED8;
+      --marino: #021237;
+
+      --fondo: #f4f6fb;
       --tarjeta: #ffffff;
-      --borde: #e3e6ea;
-      --texto: #1b1f24;
-      --suave: #6b7280;
-      --acento: #2563eb;
+      --borde: #dde3ef;
+      --texto: var(--marino);
+      --suave: #5a6480;
+      --acento: var(--azul);
       --ok: #15803d;
       --no: #b91c1c;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --fondo: #14171a; --tarjeta: #1c2024; --borde: #2c3238;
-        --texto: #e8eaed; --suave: #9aa3ad; --acento: #60a5fa;
+        /* En oscuro el marino pasa de ser el texto a ser el fondo entero.
+           El acento se aclara: #1D4ED8 sobre #021237 son dos azules oscuros
+           y el texto encima no se leería. */
+        --fondo: var(--marino);
+        --tarjeta: #0a1c47;
+        --borde: #172a5e;
+        --texto: #e9edf8;
+        --suave: #94a1c2;
+        --acento: #5b87f5;
         --ok: #4ade80; --no: #f87171;
       }
     }
@@ -51,7 +64,11 @@
     }
     main { max-width: 780px; margin: 0 auto; }
 
-    h1 { font-size: 1.5rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+    .cabecera { display: flex; align-items: center; gap: .7rem; margin-bottom: .25rem; }
+    /* Alto fijo y ancho automático: así una imagen apaisada o cuadrada
+       encajan igual sin deformarse. */
+    .cabecera img { height: 32px; width: auto; display: block; }
+    h1 { font-size: 1.5rem; margin: 0; letter-spacing: -.01em; }
     .lema { color: var(--suave); margin: 0 0 1.5rem; font-size: .9rem; }
 
     /* Barra de estadísticas */
@@ -114,7 +131,13 @@
 </head>
 <body>
 <main>
-  <h1>MailPilot</h1>
+  {# El logo solo se pinta si el archivo existe (ver web.buscar_asset). Sin
+     imagen la cabecera queda igual de bien, solo con el título: nada de
+     iconos rotos mientras no haya nada en static/. #}
+  <div class="cabecera">
+    {% if logo %}<img src="{{ logo }}" alt="MailPilot">{% endif %}
+    <h1>MailPilot</h1>
+  </div>
   <p class="lema">La IA propone. Tú decides. Nada se ejecuta sin tu visto bueno.</p>
 
   {% if ciego %}

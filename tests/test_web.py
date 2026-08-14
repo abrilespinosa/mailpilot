@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from mailpilot import web
 from mailpilot.api import app
 from mailpilot.db import get_session
 from mailpilot.models import ActionProposal, Category, Email, ProposalStatus
@@ -182,6 +183,63 @@ def test_el_modo_normal_sigue_enseñandolo_todo(client, session):
     assert "es una oferta de empleo" in html
     assert "propuesta-actual" in html
     assert "Modo ciego" not in html
+
+
+# ---------------------------------------------------------------------------
+# Imágenes
+# ---------------------------------------------------------------------------
+
+
+def test_sin_logo_la_cabecera_no_pinta_imagen_rota(client, session, tmp_path, monkeypatch):
+    """
+    El caso normal al empezar: static/ no tiene logo todavía.
+
+    La página tiene que salir entera y sin ninguna etiqueta <img>, no con el
+    icono de imagen rota que saldría si se apuntara siempre a una ruta fija.
+    """
+    monkeypatch.setattr(web, "STATIC_DIR", tmp_path)
+
+    html = client.get("/").text
+
+    assert "<img" not in html
+    assert "MailPilot" in html
+
+
+@pytest.mark.parametrize("extension", ["svg", "png", "webp", "jpg"])
+def test_el_logo_aparece_solo_con_que_exista_el_archivo(
+    client, session, tmp_path, monkeypatch, extension
+):
+    """
+    Poner `logo.png` en static/ basta: no hay que tocar la plantilla ni
+    reiniciar uvicorn, porque el archivo se busca en cada petición.
+    """
+    monkeypatch.setattr(web, "STATIC_DIR", tmp_path)
+    (tmp_path / f"logo.{extension}").write_bytes(b"no importa el contenido")
+
+    html = client.get("/").text
+
+    assert f'src="/static/logo.{extension}"' in html
+
+
+def test_el_favicon_es_opcional_igual(client, session, tmp_path, monkeypatch):
+    monkeypatch.setattr(web, "STATIC_DIR", tmp_path)
+    (tmp_path / "favicon.png").write_bytes(b"x")
+
+    assert 'rel="icon" href="/static/favicon.png"' in client.get("/").text
+
+
+def test_no_se_puede_salir_de_la_carpeta_de_assets(client):
+    """
+    Montar una carpeta estática la publica ENTERA. Lo que no debe publicar es
+    lo que hay por encima: `credentials/`, `.env`, la base de datos.
+
+    Starlette normaliza la ruta y rechaza los `..`, así que este intento de
+    subir cuatro niveles hasta el .env no devuelve 200. El test está para que
+    siga siendo verdad si algún día se cambia cómo se sirven las imágenes.
+    """
+    respuesta = client.get("/static/../../../../.env")
+
+    assert respuesta.status_code != 200
 
 
 # ---------------------------------------------------------------------------

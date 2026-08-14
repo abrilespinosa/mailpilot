@@ -12,6 +12,7 @@ Arrancar en desarrollo:
 """
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -31,6 +32,11 @@ app = FastAPI(
 # botones llaman a los endpoints POST de este mismo archivo, que son el único
 # camino de escritura del sistema.
 app.include_router(web.router)
+
+# Imágenes del dashboard. StaticFiles solo responde a GET y HEAD, y bloquea las
+# rutas con `..` que intentarían salir de la carpeta, así que montar una
+# carpeta no abre la puerta al resto del disco.
+app.mount("/static", StaticFiles(directory=web.STATIC_DIR), name="static")
 
 
 @app.get("/health", tags=["sistema"])
