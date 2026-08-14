@@ -1,0 +1,85 @@
+# Los 183 tests, en cada push a main y en cada Pull Request.
+#
+# POR QUÉ IMPORTA MÁS DE LO NORMAL EN ESTE PROYECTO
+# -------------------------------------------------
+# Varios tests no comprueban que algo funcione: comprueban que algo NO EXISTE.
+# Que ningún módulo pueda enviar correo, que solo uno escriba en Gmail, que la
+# lista de etiquetas que se pueden quitar sea cerrada, que el servidor nunca
+# abra el navegador. Un guardarraíl que solo se ejecuta cuando alguien se
+# acuerda de escribir `pytest` no está guardando nada.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    # PostgreSQL de verdad, igual que en local. Es la misma decisión que
+    # explica tests/conftest.py: el esquema usa ENUM nativos y JSONB, que
+    # SQLite no tiene, así que con SQLite los tests pasarían y producción
+    # fallaría. Un CI que miente es peor que no tener CI.
+    services:
+      db:
+        image: postgres:17
+        env:
+          POSTGRES_USER: mailpilot
+          POSTGRES_PASSWORD: mailpilot
+          POSTGRES_DB: mailpilot
+        ports:
+          - 5432:5432
+        # Sin esto los pasos empiezan antes de que Postgres acepte conexiones
+        # y el job falla de forma intermitente, que es la peor clase de fallo.
+        options: >-
+          --health-cmd "pg_isready -U mailpilot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Aquí el puerto es el 5432, no el 5433. El 5433 de local existe solo
+      # porque la máquina de desarrollo tiene un PostgreSQL nativo ocupando el
+      # 5432; esta máquina está limpia.
+      #
+      # Va como variable de entorno y no en un .env porque .env está
+      # gitignored, que es justo lo que queremos: las credenciales reales no
+      # llegan aquí. Estas son de mentira y se mueren con el job.
+      DATABASE_URL: postgresql+psycopg://mailpilot:mailpilot@localhost:5432/mailpilot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # Instalación de verdad, no un apaño de sys.path (ADR 005). Si esto
+      # funciona, el paquete está bien empaquetado; si no, es que el
+      # pyproject.toml está mal y hay que enterarse aquí.
+      - name: Instalar el paquete
+        run: pip install -e ".[dev]"
+
+      - name: Aplicar migraciones
+        run: alembic upgrade head
+
+      # EL PASO QUE NO ES OBVIO.
+      #
+      # tests/conftest.py monta el esquema con `create_all`, no con las
+      # migraciones, porque es más rápido. El precio está escrito allí: los
+      # tests NO comprueban que las migraciones estén al día respecto a
+      # models.py. Se puede añadir una columna, olvidar la migración, y tener
+      # los 183 tests en verde con la base de datos real rota.
+      #
+      # `alembic check` compara los modelos contra la base ya migrada y falla
+      # si sobra algo. Es exactamente el hueco que dejaba conftest.
+      - name: Comprobar que no falta ninguna migración
+        run: alembic check
+
+      - name: Tests
+        run: pytest -q
