@@ -269,3 +269,6 @@ consecuencias.
 - [ADR 001 — Categorías de clasificación](docs/decisions/001-categorias-de-clasificacion.md):
   por qué siete, por qué un enum cerrado, y cómo cambiaron las definiciones al medirlas
   contra correo real.
+- [ADR 002 — Tirar no es corregir](docs/decisions/002-tirar-no-es-corregir.md): por qué
+  «esto es promociones» y «esto lo tiro» son dos decisiones separadas. Mezclarlas subiría
+  el acierto medido 3,3 puntos borrando el 42 % de la muestra.
