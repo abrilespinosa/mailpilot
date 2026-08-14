@@ -85,6 +85,7 @@ El clasificador se mide contra conjuntos de correos etiquetados a mano.
 | v4 | test | 92,5 % | ⚠️ inflado: el prompt se escribió viendo sus fallos |
 | **v4** | **test2** | **73,8 %** | **medición honesta** |
 | v5 | test2 | 76,2 % | tras corregir el fallo que test2 destapó |
+| **v5** | **test3** | **82,1 %** | **medición honesta, etiquetada a ciegas** |
 
 **El 92,5 % era un espejismo de 18,7 puntos.** Afinar el prompt mirando los fallos del
 mismo conjunto con el que se mide infla el resultado, y solo un conjunto que nadie ha
@@ -102,6 +103,19 @@ especificación.
 prompt subió al 86,2 % y hundió la categoría `personal` a 0 de 5: los correos de
 personas reales acabaron en el cajón de dudas. Sin mirar la matriz de confusión, ese
 cambio parecía un éxito.
+
+**Enseñar la respuesta del modelo antes de preguntar cambia la respuesta.** Los mismos
+160 correos, partidos por la mitad, mismo prompt, mismo día. Una mitad se etiquetó viendo
+lo que proponía el modelo y la otra a ciegas:
+
+| | a ciegas | viendo la propuesta |
+|---|---|---|
+| acierto global | 82,1 % | 85,0 % |
+| acierto en la categoría ambigua | 65,4 % | 87,5 % |
+
+El efecto se concentra justo donde la decisión es dudosa: aprobar es un clic y llevarle
+la contraria cuesta. Por eso el dashboard tiene un **modo ciego** que oculta la propuesta:
+sin él, cada medición saldría inflada y nadie se enteraría.
 
 **La confianza del modelo no sirve como umbral.** Medido con dos modelos y cinco
 versiones de prompt, la diferencia de confianza entre aciertos y fallos nunca superó
