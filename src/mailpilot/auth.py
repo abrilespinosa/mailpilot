@@ -5,8 +5,10 @@ Este módulo es el ÚNICO punto del sistema que debe manejar tokens de Gmail.
 Ningún otro componente (IA, base de datos, API) debe leer credentials/ directamente.
 """
 
+import json
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -27,6 +29,37 @@ CLIENT_SECRET_PATH = CREDENTIALS_DIR / "client_secret.json"
 TOKEN_PATH = CREDENTIALS_DIR / "token.json"
 
 
+def _token_tiene_los_scopes() -> bool:
+    """
+    ¿El token guardado fue emitido con los permisos que pedimos ahora?
+
+    Hay que leer el JSON a mano, y esto es una trampa fea de la librería:
+    `Credentials.from_authorized_user_file(ruta, SCOPES)` se queda con los
+    SCOPES que le pasas y descarta los del archivo, así que `creds.scopes`
+    devuelve lo que pediste, NUNCA lo que Google concedió. Comprobarlo ahí
+    siempre da que sí, aunque el token sea de solo lectura.
+
+    Sin esta comprobación, ampliar permisos falla de dos formas confusas:
+    `invalid_scope` al refrescar, o un 403 al escribir muy lejos de la causa.
+    Los scopes no se amplían refrescando; hay que volver a pasar por el
+    navegador.
+    """
+    try:
+        info = json.loads(TOKEN_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    concedidos = set(info.get("scopes") or [])
+    faltan = set(SCOPES) - concedidos
+
+    if faltan:
+        print(f"El token guardado no incluye: {', '.join(sorted(faltan))}")
+        print("Los permisos no se amplían refrescando. Reautenticando...")
+        return False
+
+    return True
+
+
 def get_credentials() -> Credentials:
     """
     Devuelve credenciales válidas, reutilizando el token guardado si existe
@@ -35,28 +68,21 @@ def get_credentials() -> Credentials:
     """
     creds: Credentials | None = None
 
-    if TOKEN_PATH.exists():
+    if TOKEN_PATH.exists() and _token_tiene_los_scopes():
         creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
-
-        # AMPLIAR SCOPES NO SE ARREGLA REFRESCANDO.
-        #
-        # `from_authorized_user_file` se limita a copiar los SCOPES que le pasas
-        # al objeto, sin comprobar cuáles concedió Google de verdad. Un token
-        # emitido para `readonly` seguiría pareciendo válido aquí y fallaría más
-        # tarde con un 403 al intentar escribir, lejos de la causa.
-        #
-        # Compararlo aquí convierte un error confuso en una reautenticación
-        # automática.
-        concedidos = set(creds.scopes or [])
-        if not set(SCOPES).issubset(concedidos):
-            faltan = ", ".join(sorted(set(SCOPES) - concedidos))
-            print(f"El token guardado no incluye: {faltan}. Reautenticando...")
-            creds = None
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except RefreshError as error:
+                # Segunda red, por si el token está bien de scopes pero Google
+                # lo ha revocado: en modo Testing el refresh token caduca a los
+                # 7 días. Reautenticar es la respuesta correcta a las dos cosas.
+                print(f"No se pudo refrescar el token ({error}). Reautenticando...")
+                creds = None
+
+        if not creds:
             if not CLIENT_SECRET_PATH.exists():
                 raise FileNotFoundError(
                     f"No encuentro {CLIENT_SECRET_PATH}. "
