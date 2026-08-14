@@ -388,13 +388,20 @@
            ADR 002: clasificar y tirar son dos preguntas distintas. Un correo
            puede ser `promociones` y estar perfectamente clasificado, y aun así
            sobrar. Meter "papelera" como un chip más obligaría a elegir entre
-           decir qué es y decir que no lo quieres. #}
-        {% if not ciego %}
-          <div class="papelera-fila">
-            <button class="papelera" data-papelera="1">🗑 a la papelera</button>
-            <span class="papelera-nota">reversible 30 días · no borra nada para siempre</span>
-          </div>
-        {% endif %}
+           decir qué es y decir que no lo quieres.
+
+           Y SE VE TAMBIÉN EN MODO CIEGO. Estuvo escondido, sin motivo: "no me
+           enseñes lo que propuso el modelo" y "déjame tirar el correo" no
+           tienen nada que ver. Atarlos obligaba a elegir entre medir y vaciar
+           la bandeja, y quien mide acaba eligiendo trabajar —con razón—, así
+           que no salía ninguna medición limpia.
+
+           Tirar no delata la propuesta del modelo, que es lo único que el modo
+           ciego tiene que ocultar. #}
+        <div class="papelera-fila">
+          <button class="papelera" data-papelera="1">🗑 a la papelera</button>
+          <span class="papelera-nota">reversible 30 días · no borra nada para siempre</span>
+        </div>
       </article>
     {% endfor %}
 

@@ -446,14 +446,31 @@ def test_la_papelera_es_un_gesto_aparte_de_los_chips(client, session):
         assert f'data-categoria="{categoria.value}"' in html
 
 
-def test_en_modo_ciego_no_hay_papelera(client, session):
+def test_en_modo_ciego_si_hay_papelera(client, session):
     """
-    Etiquetando a ciegas se mide, no se gestiona. Un botón destructivo ahí
-    solo puede dar disgustos.
+    LO CONTRARIO DE LO QUE DECÍA ESTE TEST, Y POR QUÉ.
+
+    Antes la papelera se escondía en modo ciego, con este razonamiento:
+    "etiquetando a ciegas se mide, no se gestiona".
+
+    Es falso en cuanto hay 2.000 correos que vaciar. Nadie hace una pasada
+    aparte solo para medir: se mide mientras se trabaja, o no se mide. Atar las
+    dos cosas obligaba a elegir, la usuaria elegía trabajar —con razón— y
+    entonces no salía ninguna medición limpia. El primer lote del prompt v7 se
+    perdió así.
+
+    Y no había motivo técnico: lo único que el modo ciego debe ocultar es la
+    respuesta del modelo. El botón de papelera no la delata.
     """
     propuesta_lista(session)
+    html = client.get("/?ciego=1").text
 
-    assert 'data-papelera="1"' not in client.get("/?ciego=1").text
+    assert 'data-papelera="1"' in html
+    # Y lo que sí se sigue ocultando, que es de lo que va el modo ciego.
+    # Con espacio: sin él casa con la regla CSS `.chip.propuesta-actual`, que
+    # está siempre y no dice nada de ninguna tarjeta.
+    assert "chip propuesta-actual" not in html
+    assert "El modelo dice" not in html
 
 
 def test_pedir_papelera_no_toca_gmail_todavia(client, session):
