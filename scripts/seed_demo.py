@@ -50,7 +50,16 @@ from mailpilot.models import (
 # una demo en la que la IA acierta siempre no enseña para qué existe el paso
 # humano, que es de lo que va el proyecto entero.
 #
-#   (remitente, asunto, extracto, propuesta_del_modelo, confianza)
+# `motivo` es la explicación que acompañaría a la propuesta. NO sale de un
+# modelo: está escrita a mano, como todo lo demás de este archivo. Antes decía
+# literalmente "clasificación de demostración, no sale de un modelo", que era
+# honesto pero dejaba en blanco la línea más visible de cada tarjeta justo en
+# una demo de un clasificador. Quien mire el dashboard tiene que poder juzgar
+# el razonamiento, que es la única forma de decidir si la propuesta es buena.
+# La honestidad la sostienen `model_used="demo"` en la base de datos y el
+# encabezado de este archivo, no una frase repetida diez veces.
+#
+#   (remitente, asunto, extracto, propuesta_del_modelo, confianza, motivo)
 CORREOS = [
     (
         "citas@centromedico.example",
@@ -62,6 +71,11 @@ CORREOS = [
         # no el fondo. Es el error real que motivó la regla 0 del prompt v7.
         Category.COMPRAS,
         0.95,
+        # El motivo delata el error: el razonamiento es impecable y la
+        # conclusión es falsa. Eso es lo que hace falta ver para entender por
+        # qué la confianza no sirve de umbral.
+        "Confirmación con fecha, hora y enlace para gestionarla: tiene la "
+        "forma de una reserva.",
     ),
     (
         "lucia.moreno@example.org",
@@ -69,6 +83,8 @@ CORREOS = [
         "Te paso la carpeta con las fotos del sábado, hay algunas muy buenas.",
         Category.PERSONAL,
         0.98,
+        "Alguien escribe en primera persona y comparte archivos. No hay "
+        "remitente automático ni marca detrás.",
     ),
     (
         "seleccion@estudiodiseno.example",
@@ -77,6 +93,7 @@ CORREOS = [
         "Adjuntamos condiciones y tarifa.",
         Category.TRABAJO,
         0.95,
+        "Ofrecen un encargo pagado con condiciones y tarifa concretas.",
     ),
     (
         "no-reply@sede.administracion.example",
@@ -85,6 +102,7 @@ CORREOS = [
         "electrónica.",
         Category.TRAMITES,
         0.95,
+        "Organismo público, número de expediente y sede electrónica: papeleo.",
     ),
     (
         "pedidos@libreria.example",
@@ -93,6 +111,7 @@ CORREOS = [
         "seguimiento.",
         Category.COMPRAS,
         0.99,
+        "Envío de un pedido ya hecho, con número de seguimiento.",
     ),
     (
         "security@example.com",
@@ -101,6 +120,8 @@ CORREOS = [
         "tú, cambia tu contraseña.",
         Category.AVISOS,
         0.95,
+        "Notificación automática de seguridad. No vende nada ni pide "
+        "gestiones, solo informa.",
     ),
     (
         "ofertas@tiendaropa.example",
@@ -108,6 +129,8 @@ CORREOS = [
         "Últimas horas. Envío gratis a partir de 30 €.",
         Category.PROMOCIONES,
         0.95,
+        "Descuento con caducidad y envío gratis: correo comercial de una "
+        "tienda.",
     ),
     (
         "newsletter@revistatech.example",
@@ -116,6 +139,7 @@ CORREOS = [
         "tu ORM te miente.",
         Category.OTROS,
         0.95,
+        "Boletín periódico de una suscripción. Ni vende ni exige nada.",
     ),
     (
         "info@asociacionvecinal.example",
@@ -126,6 +150,11 @@ CORREOS = [
         # más errores acumula en las mediciones reales (4 de 14 en test6).
         Category.OTROS,
         0.95,
+        # El motivo enseña el fallo de fondo documentado en la Fase 6: `otros`
+        # significa "boletín al que me suscribí" y "no sé" a la vez, así que el
+        # modelo lo usa de cajón de sastre. No lo arregla otro prompt.
+        "Comunicación de una asociación a sus socios. No termina de encajar en "
+        "ninguna categoría.",
     ),
     (
         # LA DEFENSA CONTRA XSS, EN VIVO.
@@ -139,6 +168,7 @@ CORREOS = [
         "Pincha aquí para reclamar tu premio antes de que caduque.",
         Category.PROMOCIONES,
         0.99,
+        "Premio no solicitado y enlace con prisa: patrón comercial de siempre.",
     ),
 ]
 
@@ -172,9 +202,14 @@ def main():
     ahora = datetime.now(timezone.utc)
 
     with Session(engine) as sesion:
-        for numero, (remitente, asunto, extracto, propuesta, confianza) in enumerate(
-            CORREOS
-        ):
+        for numero, (
+            remitente,
+            asunto,
+            extracto,
+            propuesta,
+            confianza,
+            motivo,
+        ) in enumerate(CORREOS):
             correo = Email(
                 gmail_message_id=f"demo-{numero:03d}",
                 gmail_thread_id=f"demo-hilo-{numero:03d}",
@@ -193,7 +228,10 @@ def main():
                     email_id=correo.id,
                     category=propuesta,
                     confidence=confianza,
-                    reasoning="clasificación de demostración, no sale de un modelo",
+                    reasoning=motivo,
+                    # La marca de que esto no sale de un modelo vive AQUÍ, en
+                    # un campo que se guarda con cada fila, no en un texto que
+                    # hay que repetir en la pantalla.
                     model_used="demo",
                 )
             )
@@ -202,7 +240,7 @@ def main():
                     email_id=correo.id,
                     proposed_action=ProposedAction.CATEGORIZE,
                     category=propuesta,
-                    reason="clasificación de demostración, no sale de un modelo",
+                    reason=motivo,
                     confidence=confianza,
                     status=ProposalStatus.PENDING,
                 )
