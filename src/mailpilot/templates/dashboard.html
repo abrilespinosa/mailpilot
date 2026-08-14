@@ -64,10 +64,11 @@
     }
     main { max-width: 780px; margin: 0 auto; }
 
-    .cabecera { display: flex; align-items: center; gap: .7rem; margin-bottom: .25rem; }
-    /* Alto fijo y ancho automático: así una imagen apaisada o cuadrada
-       encajan igual sin deformarse. */
-    .cabecera img { height: 32px; width: auto; display: block; }
+    .cabecera { display: flex; align-items: center; gap: .7rem; margin-bottom: .35rem; }
+    /* Alto fijo y ancho automático: una imagen apaisada o cuadrada encajan
+       igual sin deformarse. max-width evita que un logo muy ancho desborde
+       en el móvil. */
+    .cabecera img { height: 38px; width: auto; max-width: 100%; display: block; }
     h1 { font-size: 1.5rem; margin: 0; letter-spacing: -.01em; }
     .lema { color: var(--suave); margin: 0 0 1.5rem; font-size: .9rem; }
 
@@ -132,11 +133,28 @@
 <body>
 <main>
   {# El logo solo se pinta si el archivo existe (ver web.buscar_asset). Sin
-     imagen la cabecera queda igual de bien, solo con el título: nada de
-     iconos rotos mientras no haya nada en static/. #}
+     imagen queda el título en texto: nada de iconos rotos.
+
+     Va DENTRO del h1, no al lado, por dos motivos: el título de la página
+     sigue siendo uno solo para un lector de pantalla (que lee el alt), y no
+     se repite la palabra "MailPilot" en imagen y en texto.
+
+     <picture> cambia de archivo según el tema del sistema sin una línea de
+     JavaScript. Hace falta porque el logo claro lleva el texto en marino y
+     sobre el fondo oscuro no se leería. #}
   <div class="cabecera">
-    {% if logo %}<img src="{{ logo }}" alt="MailPilot">{% endif %}
-    <h1>MailPilot</h1>
+    <h1>
+      {% if logo %}
+        <picture>
+          {% if logo_oscuro %}
+            <source srcset="{{ logo_oscuro }}" media="(prefers-color-scheme: dark)">
+          {% endif %}
+          <img src="{{ logo }}" alt="MailPilot">
+        </picture>
+      {% else %}
+        MailPilot
+      {% endif %}
+    </h1>
   </div>
   <p class="lema">La IA propone. Tú decides. Nada se ejecuta sin tu visto bueno.</p>
 

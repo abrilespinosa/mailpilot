@@ -111,6 +111,10 @@ def dashboard(
             "stats": estadisticas(session),
             "ciego": ciego,
             "logo": buscar_asset("logo"),
+            # El logo horizontal lleva "MailPilot" en marino sobre fondo
+            # transparente: sobre el fondo oscuro sería invisible. Por eso hay
+            # una variante y la plantilla las cambia con <picture>.
+            "logo_oscuro": buscar_asset("logo-oscuro"),
             "favicon": buscar_asset("favicon"),
         },
     )

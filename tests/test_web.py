@@ -228,6 +228,33 @@ def test_el_favicon_es_opcional_igual(client, session, tmp_path, monkeypatch):
     assert 'rel="icon" href="/static/favicon.png"' in client.get("/").text
 
 
+def test_hay_una_variante_de_logo_para_el_tema_oscuro(client, session, tmp_path, monkeypatch):
+    """
+    El logo lleva el texto en marino sobre fondo transparente: sobre el fondo
+    oscuro sería invisible. <picture> cambia de archivo según el tema del
+    sistema, sin JavaScript.
+    """
+    monkeypatch.setattr(web, "STATIC_DIR", tmp_path)
+    (tmp_path / "logo.png").write_bytes(b"x")
+    (tmp_path / "logo-oscuro.png").write_bytes(b"x")
+
+    html = client.get("/").text
+
+    assert 'srcset="/static/logo-oscuro.png" media="(prefers-color-scheme: dark)"' in html
+    assert 'src="/static/logo.png"' in html
+
+
+def test_sin_variante_oscura_se_usa_el_logo_normal(client, session, tmp_path, monkeypatch):
+    """Tener solo un logo tiene que seguir funcionando, sin <source> vacío."""
+    monkeypatch.setattr(web, "STATIC_DIR", tmp_path)
+    (tmp_path / "logo.svg").write_bytes(b"x")
+
+    html = client.get("/").text
+
+    assert 'src="/static/logo.svg"' in html
+    assert "<source" not in html
+
+
 def test_no_se_puede_salir_de_la_carpeta_de_assets(client):
     """
     Montar una carpeta estática la publica ENTERA. Lo que no debe publicar es
@@ -280,7 +307,9 @@ def test_un_correo_hostil_no_inyecta_html(client, session):
     # forme parte de una etiqueta de verdad.
     assert "<script>alert" not in html
     assert "<script>fetch" not in html
-    assert "<img" not in html
+    # `<img src=x`, no `<img` a secas: la cabecera lleva un <img> legítimo con
+    # el logo. Lo que no puede existir es la etiqueta que venía en el correo.
+    assert "<img src=x" not in html
 
 
 def test_el_dashboard_no_escribe_nada():
