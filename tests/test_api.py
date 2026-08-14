@@ -158,6 +158,9 @@ ESCRITURA_PERMITIDA = {
     # --- Fase 9: los dos únicos que pueden acabar cambiando algo en Gmail ---
     # Pedir la papelera. Solo escribe una fila `pending`: no toca Gmail.
     ("POST", "/emails/{email_id}/trash"),
+    # Preguntar a Gmail qué hay en la papelera. Es una LECTURA de Gmail que
+    # escribe en nuestra base de datos: no mueve ni etiqueta nada.
+    ("POST", "/actions/sync-trash"),
     # Encolar la etiqueta de decisiones tomadas antes de que existiera el eje
     # de acciones. Tampoco toca Gmail: solo deja filas `pending`.
     ("POST", "/actions/backfill"),

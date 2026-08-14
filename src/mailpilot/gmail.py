@@ -146,3 +146,32 @@ def fetch_messages(service, message_ids: list[str]) -> list[EmailData]:
     optimizamos antes de tener un número que lo justifique.
     """
     return [fetch_message(service, message_id) for message_id in message_ids]
+
+
+def ids_en_papelera(service) -> set[str]:
+    """
+    Los ids de todos los mensajes que están en la papelera de Gmail.
+
+    Una consulta paginada para todos, no una llamada por correo: con 118 en la
+    papelera la diferencia es de una llamada frente a 118.
+
+    `messages.list` excluye la papelera por defecto, así que hay que pedirla a
+    propósito con `q='in:trash'`. Ese mismo comportamiento es la razón de que
+    un correo tirado desaparezca de la ingestión y su fila se quede con datos
+    viejos: nunca vuelve a pasar por el upsert.
+    """
+    encontrados: set[str] = set()
+    page_token: str | None = None
+
+    while True:
+        respuesta = (
+            service.users()
+            .messages()
+            .list(userId="me", q="in:trash", maxResults=500, pageToken=page_token)
+            .execute()
+        )
+        encontrados.update(m["id"] for m in respuesta.get("messages", []))
+
+        page_token = respuesta.get("nextPageToken")
+        if not page_token:
+            return encontrados

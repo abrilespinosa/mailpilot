@@ -196,7 +196,8 @@
 
   <nav class="pestanas">
     <a href="/" class="{% if vista == 'pendientes' %}activa{% endif %}">Pendientes</a>
-    <a href="/decididas" class="{% if vista == 'decididas' %}activa{% endif %}">Ya revisadas</a>
+    <a href="/clasificados" class="{% if vista == 'clasificados' %}activa{% endif %}">Clasificado</a>
+    <a href="/papelera" class="{% if vista == 'papelera' %}activa{% endif %}">Papelera</a>
   </nav>
 
   {% if ciego %}
@@ -251,10 +252,53 @@
     {% endif %}
   </section>
 
-  {% if not propuestas %}
+  {% if vista == 'papelera' %}
+    <div class="barra-acciones">
+      <span>
+        Lo que está hoy en la papelera de Gmail: lo que tiró MailPilot y lo que
+        tiraste tú a mano. Reversible 30 días.
+      </span>
+      <button class="ejecutar" id="sincronizar">Sincronizar con Gmail</button>
+    </div>
+
+    {% if not papelera %}
+      <p class="vacio">La papelera está vacía, o falta sincronizar con Gmail.</p>
+    {% else %}
+      {% for correo in papelera %}
+        <article class="propuesta">
+          <div class="meta">
+            <span class="remitente">{{ correo.sender }}</span>
+            <span>{{ correo.received_at.strftime("%d %b %Y, %H:%M") }}</span>
+          </div>
+          <p class="asunto">{{ correo.subject }}</p>
+          <p class="extracto">{{ correo.snippet }}</p>
+          <p class="veredicto">
+            En la papelera.
+            {% if correo.proposals and correo.proposals[0].final_category %}
+              Estaba clasificado como <b>{{ correo.proposals[0].final_category.value }}</b>,
+              y esa clasificación se conserva para medir al modelo.
+            {% else %}
+              Sin clasificar.
+            {% endif %}
+          </p>
+        </article>
+      {% endfor %}
+
+      <p class="paginacion">
+        {% if offset > 0 %}
+          <a href="/papelera?offset={{ offset - limit }}&limit={{ limit }}">← anteriores</a>
+        {% endif %}
+        <span>{{ offset + 1 }}–{{ offset + papelera|length }} de {{ total }}</span>
+        {% if offset + limit < total %}
+          <a href="/papelera?offset={{ offset + limit }}&limit={{ limit }}">siguientes →</a>
+        {% endif %}
+      </p>
+    {% endif %}
+
+  {% elif not propuestas %}
     <p class="vacio">
-      {% if vista == 'decididas' %}
-        Todavía no has revisado nada.
+      {% if vista == 'clasificados' %}
+        Todavía no has clasificado nada.
       {% else %}
         No hay nada pendiente.<br>
         Ejecuta <code>python scripts/ingest.py</code>, <code>classify.py</code>
@@ -266,12 +310,12 @@
       {# El chip resaltado NO es el mismo en las dos vistas: en pendientes es
          lo que propone el modelo, en revisadas es lo que elegiste tú. `marcada`
          resuelve eso una vez en lugar de repetir el condicional. #}
-      {% set marcada = p.final_category if vista == 'decididas' else p.category %}
+      {% set marcada = p.final_category if vista == 'clasificados' else p.category %}
 
       {# data-id es lo único que necesita el JavaScript: el resto de la
          decisión (qué se puede hacer, qué se guarda) lo aplica el servidor. #}
       <article class="propuesta" data-id="{{ p.id }}" data-email-id="{{ p.email_id }}"
-               {% if vista == 'decididas' %}data-rectificar="1"{% endif %}>
+               {% if vista == 'clasificados' %}data-rectificar="1"{% endif %}>
         <div class="meta">
           <span class="remitente">{{ p.email.sender }}</span>
           <span>{{ p.email.received_at.strftime("%d %b %Y, %H:%M") }}</span>
@@ -289,7 +333,7 @@
           </p>
         {% endif %}
 
-        {% if vista == 'decididas' %}
+        {% if vista == 'clasificados' %}
           <p class="veredicto {% if p.category != p.final_category and p.final_category %}corregida{% endif %}">
             {% if not p.final_category %}
               Descartada. El modelo proponía <b>{{ p.category.value }}</b>.
@@ -331,14 +375,14 @@
       </article>
     {% endfor %}
 
-    {% if vista == 'decididas' %}
+    {% if vista == 'clasificados' %}
       <p class="paginacion">
         {% if offset > 0 %}
-          <a href="/decididas?offset={{ offset - limit }}&limit={{ limit }}">← anteriores</a>
+          <a href="/clasificados?offset={{ offset - limit }}&limit={{ limit }}">← anteriores</a>
         {% endif %}
         <span>{{ offset + 1 }}–{{ offset + propuestas|length }} de {{ total }}</span>
         {% if offset + limit < total %}
-          <a href="/decididas?offset={{ offset + limit }}&limit={{ limit }}">siguientes →</a>
+          <a href="/clasificados?offset={{ offset + limit }}&limit={{ limit }}">siguientes →</a>
         {% endif %}
       </p>
     {% elif total > mostrando %}
@@ -361,6 +405,7 @@
 document.addEventListener("click", (evento) => {
   if (evento.target.id === "ejecutar") return aplicarEnGmail(evento.target);
   if (evento.target.id === "recuperar") return recuperarAtrasadas(evento.target);
+  if (evento.target.id === "sincronizar") return sincronizar(evento.target);
 
   const boton = evento.target.closest(".chip, .descartar, .papelera");
   if (!boton) return;
@@ -396,6 +441,19 @@ async function pedirPapelera(tarjeta, boton) {
     boton.textContent = "🗑 pedida — se aplicará al pulsar «Aplicar en Gmail»";
   } catch (error) {
     avisar(tarjeta, "No hay conexión con el servidor.");
+  }
+}
+
+async function sincronizar(boton) {
+  boton.disabled = true;
+  boton.textContent = "Preguntando a Gmail…";
+  try {
+    const r = await (await fetch("/actions/sync-trash", { method: "POST" })).json();
+    boton.textContent = `${r.marcados} nuevos, ${r.rescatados} rescatados`;
+    setTimeout(() => location.reload(), 1100);
+  } catch (error) {
+    boton.disabled = false;
+    boton.textContent = "No se pudo. Reintentar";
   }
 }
 

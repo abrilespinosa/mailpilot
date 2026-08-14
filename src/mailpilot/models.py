@@ -15,6 +15,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
@@ -183,6 +184,19 @@ class Email(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    # ESTADO ACTUAL en Gmail, no histórico. Lo mantiene la sincronización, y
+    # también se marca cuando MailPilot tira un correo.
+    #
+    # Es un campo aparte de `gmail_actions` a propósito: aquella tabla guarda
+    # lo que HICIMOS y no se reescribe nunca. Si "está en la papelera" se
+    # dedujera de una acción ejecutada, rescatar el correo desde Gmail dejaría
+    # el dato mintiendo para siempre. Los correos tirados a mano en Gmail
+    # tampoco tienen ninguna acción detrás.
+    en_papelera: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), index=True
+    )
+    sincronizado_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     classifications: Mapped[list["Classification"]] = relationship(
         back_populates="email", cascade="all, delete-orphan"

@@ -193,6 +193,9 @@ def ejecutar(session: Session, service, accion: GmailAction, cache=None) -> Gmai
             detalle = {"etiqueta": nombre}
         else:
             mover_a_papelera(service, email.gmail_message_id)
+            # El estado actual se marca aquí mismo para que la pestaña de
+            # papelera lo refleje sin esperar a una sincronización.
+            email.en_papelera = True
             detalle = {"papelera": True, "reversible_dias": 30}
 
     except Exception as error:

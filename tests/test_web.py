@@ -344,7 +344,7 @@ def test_el_dashboard_no_escribe_nada():
 # ---------------------------------------------------------------------------
 
 
-def test_las_revisadas_marcan_TU_eleccion_no_la_del_modelo(client, session):
+def test_clasificados_marca_TU_eleccion_no_la_del_modelo(client, session):
     """
     La diferencia clave entre las dos vistas.
 
@@ -355,19 +355,19 @@ def test_las_revisadas_marcan_TU_eleccion_no_la_del_modelo(client, session):
     propuesta = propuesta_lista(session, categoria=Category.PROMOCIONES)
     decidir_propuesta(session, propuesta.id, ProposalStatus.MODIFIED, Category.TRABAJO)
 
-    html = client.get("/decididas").text
+    html = client.get("/clasificados").text
 
     assert '<button class="chip propuesta-actual"\n                    data-categoria="trabajo"' in html
     assert "El modelo dijo <b>promociones</b>" in html
     assert "tú elegiste" in html
 
 
-def test_las_revisadas_se_pueden_rectificar(client, session):
+def test_los_clasificados_se_pueden_rectificar(client, session):
     """Todo clic en esta vista va a /rectify, que no devuelve 409."""
     propuesta = propuesta_lista(session)
     decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
 
-    html = client.get("/decididas").text
+    html = client.get("/clasificados").text
     assert 'data-rectificar="1"' in html
 
     respuesta = client.post(
@@ -379,12 +379,12 @@ def test_las_revisadas_se_pueden_rectificar(client, session):
     assert respuesta.json()["category"] == "promociones"   # lo del modelo, intacto
 
 
-def test_las_pendientes_no_salen_en_revisadas_ni_al_reves(client, session):
+def test_las_pendientes_no_salen_en_clasificados_ni_al_reves(client, session):
     pendiente = propuesta_lista(session, message_id="a", subject="Sin decidir")
     decidida = propuesta_lista(session, message_id="b", subject="Ya decidida")
     decidir_propuesta(session, decidida.id, ProposalStatus.APPROVED)
 
-    revisadas = client.get("/decididas").text
+    revisadas = client.get("/clasificados").text
     assert "Ya decidida" in revisadas
     assert "Sin decidir" not in revisadas
 
@@ -406,7 +406,7 @@ def test_rectificar_algo_pendiente_da_409(client, session):
     assert respuesta.status_code == 409
 
 
-def test_las_revisadas_tienen_paginacion(client, session):
+def test_los_clasificados_tienen_paginacion(client, session):
     """
     Las decididas no desaparecen al tocarlas, así que la lista solo crece y
     necesita paginar de verdad, a diferencia de la de pendientes.
@@ -415,10 +415,10 @@ def test_las_revisadas_tienen_paginacion(client, session):
         p = propuesta_lista(session, message_id=f"m{n}", subject=f"Correo {n}")
         decidir_propuesta(session, p.id, ProposalStatus.APPROVED)
 
-    html = client.get("/decididas?limit=2").text
+    html = client.get("/clasificados?limit=2").text
 
     assert "1–2 de 3" in html
-    assert "/decididas?offset=2&limit=2" in html
+    assert "/clasificados?offset=2&limit=2" in html
 
 
 # ---------------------------------------------------------------------------
@@ -561,3 +561,77 @@ def test_lo_rechazado_no_se_recupera(client, session):
     decidir_propuesta(session, propuesta.id, ProposalStatus.REJECTED)
 
     assert client.post("/actions/backfill").json()["encoladas"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Pestaña de papelera
+# ---------------------------------------------------------------------------
+
+
+def en_papelera(session, email_id):
+    session.get(Email, email_id).en_papelera = True
+    session.commit()
+
+
+def test_la_papelera_enseña_lo_tirado_desde_gmail(client, session):
+    """
+    Lo importante de esta pestaña: enseña el ESTADO ACTUAL de Gmail, no lo que
+    hizo MailPilot. Un correo que la usuaria arrastró a la papelera desde Gmail
+    no tiene ninguna acción detrás, y aun así tiene que salir.
+    """
+    propuesta = propuesta_lista(session, subject="Tirado desde Gmail")
+    en_papelera(session, propuesta.email_id)
+
+    html = client.get("/papelera").text
+
+    assert "Tirado desde Gmail" in html
+    assert session.execute(select(GmailAction)).scalars().all() == []
+
+
+def test_lo_tirado_desaparece_de_pendientes(client, session):
+    """
+    EL MOTIVO DE TODO ESTO.
+
+    Preguntar por un correo que ya tiraste es hacerte perder el tiempo con una
+    decisión que ya tomaste, aunque la tomaras desde Gmail y no desde aquí.
+    """
+    propuesta = propuesta_lista(session, subject="Ya lo tiré")
+    assert "Ya lo tiré" in client.get("/").text
+
+    en_papelera(session, propuesta.email_id)
+
+    assert "Ya lo tiré" not in client.get("/").text
+
+
+def test_lo_tirado_no_sale_en_clasificados(client, session):
+    """Cada correo en una sola pestaña: la papelera manda sobre clasificado."""
+    propuesta = propuesta_lista(session, subject="Clasificado y tirado")
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+    en_papelera(session, propuesta.email_id)
+
+    assert "Clasificado y tirado" not in client.get("/clasificados").text
+    assert "Clasificado y tirado" in client.get("/papelera").text
+
+
+def test_la_papelera_conserva_la_clasificacion(client, session):
+    """
+    ADR 002 otra vez: tirar no borra la etiqueta ni la saca del cálculo del
+    acierto. La pestaña lo dice en voz alta para que no parezca perdido.
+    """
+    propuesta = propuesta_lista(session, categoria=Category.PROMOCIONES)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+    antes = client.get("/").text
+    en_papelera(session, propuesta.email_id)
+
+    html = client.get("/papelera").text
+
+    assert "promociones</b>" in html
+    assert "se conserva para medir al modelo" in html
+
+
+def test_las_tres_pestanas_estan_siempre(client, session):
+    for ruta in ("/", "/clasificados", "/papelera"):
+        html = client.get(ruta).text
+        assert 'href="/"' in html
+        assert 'href="/clasificados"' in html
+        assert 'href="/papelera"' in html

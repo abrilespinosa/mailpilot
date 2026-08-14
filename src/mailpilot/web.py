@@ -26,12 +26,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mailpilot.db import get_session
-from mailpilot.models import ActionProposal, Category, ProposalStatus
+from mailpilot.models import ActionProposal, Category, Email, ProposalStatus
 from mailpilot.repository import (
     contar_acciones,
     decisiones_sin_aplicar,
+    emails_en_papelera,
     estadisticas,
-    propuestas_decididas,
+    propuestas_clasificadas,
     propuestas_pendientes,
 )
 
@@ -103,7 +104,11 @@ def dashboard(
     total = session.execute(
         select(func.count())
         .select_from(ActionProposal)
-        .where(ActionProposal.status == ProposalStatus.PENDING)
+        .join(Email)
+        .where(
+            ActionProposal.status == ProposalStatus.PENDING,
+            Email.en_papelera.is_(False),
+        )
     ).scalar_one()
 
     return templates.TemplateResponse(
@@ -131,34 +136,43 @@ def dashboard(
     )
 
 
-@router.get("/decididas", response_class=HTMLResponse, include_in_schema=False)
-def decididas(
+@router.get("/clasificados", response_class=HTMLResponse, include_in_schema=False)
+def clasificados(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
     """
-    Lo ya revisado, para poder arreglar un clic equivocado.
+    Lo que ya está organizado, y sigue en la bandeja.
 
-    Aquí sí se enseñan las dos cosas a la vez: lo que propuso el modelo y lo
-    que elegiste tú. No hay riesgo de anclaje porque ya decidiste; lo que hace
-    falta ahora es justo lo contrario, ver en qué se diferencian.
+    Se enseñan las dos cosas a la vez: lo que propuso el modelo y lo que
+    elegiste tú. No hay riesgo de anclaje porque ya decidiste; lo que hace
+    falta ahora es justo lo contrario, ver en qué os diferenciasteis, y poder
+    arreglar un clic equivocado.
 
-    Tiene paginación de verdad, a diferencia de la lista de pendientes: las
-    decididas no desaparecen al tocarlas, así que la lista solo crece.
+    Lo que está en la papelera NO sale aquí: tiene su propia pestaña. Su
+    clasificación no se borra y sigue contando para medir al modelo (ADR 002),
+    simplemente no es algo que estés organizando.
+
+    Tiene paginación de verdad, a diferencia de la lista de pendientes: estas
+    no desaparecen al tocarlas, así que la lista solo crece.
     """
     total = session.execute(
         select(func.count())
         .select_from(ActionProposal)
-        .where(ActionProposal.status != ProposalStatus.PENDING)
+        .join(Email)
+        .where(
+            ActionProposal.status != ProposalStatus.PENDING,
+            Email.en_papelera.is_(False),
+        )
     ).scalar_one()
 
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context={
-            "propuestas": propuestas_decididas(session, limit=limit, offset=offset),
+            "propuestas": propuestas_clasificadas(session, limit=limit, offset=offset),
             "total": total,
             "offset": offset,
             "limit": limit,
@@ -167,7 +181,53 @@ def decididas(
             "acciones": contar_acciones(session),
             "sin_aplicar": decisiones_sin_aplicar(session),
             "ciego": False,
-            "vista": "decididas",
+            "vista": "clasificados",
+            "logo": buscar_asset("logo"),
+            "logo_oscuro": buscar_asset("logo-oscuro"),
+            "favicon": buscar_asset("favicon"),
+        },
+    )
+
+
+@router.get("/papelera", response_class=HTMLResponse, include_in_schema=False)
+def papelera(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    """
+    Lo que está hoy en la papelera de Gmail, lo tirara quien lo tirara.
+
+    Da igual si lo mandó MailPilot o si la usuaria lo arrastró a la papelera
+    desde Gmail: lo que se enseña es el ESTADO ACTUAL de la cuenta, no lo que
+    hicimos nosotros. Por eso se lee de `Email.en_papelera` y no de las
+    acciones ejecutadas.
+
+    Un correo tirado a mano en Gmail desaparece de la ingestión —la API excluye
+    la papelera por defecto—, así que su fila se queda con datos viejos y solo
+    la sincronización se entera. De ahí el botón.
+    """
+    total = session.execute(
+        select(func.count()).select_from(Email).where(Email.en_papelera.is_(True))
+    ).scalar_one()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "propuestas": [],
+            "papelera": emails_en_papelera(session, limit=limit, offset=offset),
+            "total": total,
+            "mostrando": limit,
+            "offset": offset,
+            "limit": limit,
+            "categorias": list(Category),
+            "stats": estadisticas(session),
+            "acciones": contar_acciones(session),
+            "sin_aplicar": 0,
+            "ciego": False,
+            "vista": "papelera",
             "logo": buscar_asset("logo"),
             "logo_oscuro": buscar_asset("logo-oscuro"),
             "favicon": buscar_asset("favicon"),

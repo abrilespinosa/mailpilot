@@ -242,12 +242,21 @@ def generar_propuestas(session: Session, limit: int = 100) -> int:
 
 
 def propuestas_pendientes(session: Session, limit: int = 50, offset: int = 0):
-    """Propuestas sin decidir, de la más reciente a la más antigua."""
+    """
+    Propuestas sin decidir, de la más reciente a la más antigua.
+
+    Los correos que ya están en la papelera quedan fuera: preguntar por algo
+    que la usuaria ya tiró es hacerle perder el tiempo con una decisión que ya
+    tomó, aunque la tomara desde Gmail y no desde aquí.
+    """
     return (
         session.execute(
             select(ActionProposal)
             .join(Email)
-            .where(ActionProposal.status == ProposalStatus.PENDING)
+            .where(
+                ActionProposal.status == ProposalStatus.PENDING,
+                Email.en_papelera.is_(False),
+            )
             .order_by(Email.received_at.desc())
             .limit(limit)
             .offset(offset)
@@ -414,6 +423,89 @@ def encolar_accion(
     session.commit()
 
     return fila
+
+
+def sincronizar_papelera(session: Session, ids_papelera: set[str]) -> dict:
+    """
+    Pone al día `Email.en_papelera` con lo que hay ahora mismo en Gmail.
+
+    Va en las DOS direcciones a propósito. Marcar los que se tiraron a mano es
+    lo evidente; desmarcar los que se rescataron lo es menos, y sin ello el
+    dato se quedaría mintiendo en cuanto la usuaria sacara algo de la papelera.
+
+    No borra ni toca `gmail_actions`: si MailPilot tiró un correo y luego se
+    rescató, ese registro sigue siendo cierto —se tiró— y el estado actual lo
+    cuenta este campo. Histórico y estado actual son cosas distintas.
+    """
+    correos = session.execute(select(Email)).scalars().all()
+    ahora = datetime.now(timezone.utc)
+
+    marcados = desmarcados = 0
+    for correo in correos:
+        deberia = correo.gmail_message_id in ids_papelera
+        if correo.en_papelera != deberia:
+            correo.en_papelera = deberia
+            marcados += deberia
+            desmarcados += not deberia
+        correo.sincronizado_at = ahora
+
+    session.add(
+        AuditLog(
+            event_type="trash_synced",
+            detail={
+                "en_papelera_en_gmail": len(ids_papelera),
+                "marcados": marcados,
+                "rescatados": desmarcados,
+            },
+        )
+    )
+    session.commit()
+
+    return {"marcados": marcados, "rescatados": desmarcados}
+
+
+def emails_en_papelera(session: Session, limit: int = 20, offset: int = 0):
+    """Correos que están hoy en la papelera de Gmail, los tirara quien los tirara."""
+    return list(
+        session.execute(
+            select(Email)
+            .where(Email.en_papelera.is_(True))
+            .order_by(Email.received_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def propuestas_clasificadas(session: Session, limit: int = 20, offset: int = 0):
+    """
+    Propuestas ya decididas cuyo correo NO está en la papelera.
+
+    Lo tirado se excluye porque tiene su propia pestaña: un correo en la
+    papelera ya no es algo que estés organizando. Su clasificación no se borra
+    y sigue contando para medir al modelo (ADR 002), simplemente no se lista
+    aquí.
+    """
+    return list(
+        session.execute(
+            select(ActionProposal)
+            .join(Email)
+            .where(
+                ActionProposal.status != ProposalStatus.PENDING,
+                Email.en_papelera.is_(False),
+            )
+            .order_by(
+                ActionProposal.decided_at.desc(),
+                ActionProposal.id.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
 
 
 def encolar_etiquetas_atrasadas(session: Session, limit: int = 1000) -> int:

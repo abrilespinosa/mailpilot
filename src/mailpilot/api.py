@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from mailpilot import gmail_actions, web
 from mailpilot.db import get_session
-from mailpilot.gmail import get_service
+from mailpilot.gmail import get_service, ids_en_papelera
 from mailpilot.models import (
     ActionProposal,
     Email,
@@ -33,6 +33,7 @@ from mailpilot.repository import (
     acciones_pendientes,
     decidir_propuesta,
     encolar_etiquetas_atrasadas,
+    sincronizar_papelera,
     encolar_accion,
     propuestas_pendientes,
     rectificar_decision,
@@ -40,6 +41,7 @@ from mailpilot.repository import (
 from mailpilot.schemas import (
     ActionOut,
     BackfillOut,
+    SyncOut,
     DecisionIn,
     EmailDetail,
     EmailPage,
@@ -139,7 +141,11 @@ def list_proposals(
     total = session.execute(
         select(func.count())
         .select_from(ActionProposal)
-        .where(ActionProposal.status == ProposalStatus.PENDING)
+        .join(Email)
+        .where(
+            ActionProposal.status == ProposalStatus.PENDING,
+            Email.en_papelera.is_(False),
+        )
     ).scalar_one()
 
     items = propuestas_pendientes(session, limit=limit, offset=offset)
@@ -263,6 +269,21 @@ def request_trash(
 
     # Ya estaba pedida: no es un error, es un segundo clic.
     return {"pedida": accion is not None, "accion": "move_to_trash"}
+
+
+@app.post("/actions/sync-trash", response_model=SyncOut, tags=["acciones"])
+def sync_trash(session: Session = Depends(get_session)) -> dict:
+    """
+    Pregunta a Gmail qué hay en la papelera y pone al día la base de datos.
+
+    Hace falta porque un correo tirado a mano en Gmail desaparece de la
+    ingestión: `messages.list` excluye la papelera por defecto, así que su fila
+    se queda con datos viejos y nunca vuelve a pasar por el upsert.
+
+    Es una LECTURA de Gmail: no mueve ni etiqueta nada. Va en las dos
+    direcciones, así que rescatar un correo desde Gmail también se refleja.
+    """
+    return sincronizar_papelera(session, ids_en_papelera(get_service()))
 
 
 @app.post("/actions/backfill", response_model=BackfillOut, tags=["acciones"])

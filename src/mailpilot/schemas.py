@@ -111,3 +111,10 @@ class BackfillOut(BaseModel):
     """Cuántas etiquetas atrasadas se han dejado pedidas. Gmail sigue intacto."""
 
     encoladas: int
+
+
+class SyncOut(BaseModel):
+    """Resultado de sincronizar con la papelera de Gmail. No mueve nada."""
+
+    marcados: int
+    rescatados: int
