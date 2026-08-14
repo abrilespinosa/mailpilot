@@ -80,7 +80,7 @@ def test_pinta_las_propuestas_pendientes(client, session):
         sender="rrhh@empresa.com",
     )
 
-    html = client.get("/").text
+    html = client.get("/?ciego=0").text
 
     assert "Entrevista el jueves" in html
     assert "rrhh@empresa.com" in html
@@ -95,7 +95,7 @@ def test_marca_la_categoria_que_propuso_el_modelo(client, session):
     """
     propuesta_lista(session, categoria=Category.TRABAJO)
 
-    html = client.get("/").text
+    html = client.get("/?ciego=0").text
 
     assert 'class="chip propuesta-actual"' in html
     assert 'data-categoria="trabajo"' in html
@@ -134,7 +134,7 @@ def test_muestra_el_acierto_real(client, session):
     decidir_propuesta(session, primera.id, ProposalStatus.APPROVED)
     decidir_propuesta(session, segunda.id, ProposalStatus.MODIFIED, Category.TRABAJO)
 
-    html = client.get("/").text
+    html = client.get("/?ciego=0").text
 
     assert "50 %" in html
     assert "acierto real" in html
@@ -186,10 +186,21 @@ def test_el_modo_ciego_sigue_dejando_decidir(client, session):
 
 
 def test_el_modo_normal_sigue_enseñandolo_todo(client, session):
-    """El modo ciego se pide a propósito; por defecto no se activa."""
+    """
+    Ver la propuesta del modelo sigue siendo posible, pero hay que PEDIRLO
+    (`?ciego=0`). El defecto es el ciego.
+
+    Estuvo al revés y no funcionó: bastaba teclear la URL sin el parámetro, o
+    pulsar una pestaña —los enlaces no lo arrastran—, para etiquetar anclada
+    sin enterarte. Así se perdieron los 80 correos del primer lote del v7.
+
+    Los dos defectos fallan distinto, y esa es toda la razón del cambio:
+    olvidarse del ciego solo te quita ayuda; olvidarse del parámetro
+    contaminaba los datos en silencio.
+    """
     propuesta_lista(session, categoria=Category.TRABAJO, razon="es una oferta de empleo")
 
-    html = client.get("/").text
+    html = client.get("/?ciego=0").text
 
     assert "es una oferta de empleo" in html
     assert "propuesta-actual" in html
@@ -553,7 +564,7 @@ def test_recupera_las_decisiones_anteriores_a_la_fase_9(client, session):
         session.delete(accion)
     session.commit()
 
-    assert "decisiones tuyas todavía no tienen etiqueta" in client.get("/").text
+    assert "decisiones tuyas todavía no tienen etiqueta" in client.get("/?ciego=0").text
 
     respuesta = client.post("/actions/backfill")
 

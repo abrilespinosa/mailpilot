@@ -73,8 +73,8 @@ def dashboard(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
     ciego: bool = Query(
-        False,
-        description="Oculta lo que propuso el modelo. Para etiquetar sin anclaje.",
+        True,
+        description="Oculta lo que propuso el modelo. Por defecto sí; `?ciego=0` lo enseña.",
     ),
     session: Session = Depends(get_session),
 ):
@@ -86,8 +86,22 @@ def dashboard(
     lista vacía, y si el JavaScript fallara la lista se seguiría viendo (solo
     dejarían de funcionar los botones).
 
-    MODO CIEGO (`?ciego=1`): oculta la categoría propuesta y la explicación del
-    modelo, dejando solo el correo y los siete botones.
+    MODO CIEGO, Y ES EL COMPORTAMIENTO POR DEFECTO: oculta la categoría
+    propuesta y la explicación del modelo, dejando solo el correo y los siete
+    botones. Para ver lo que opinó el modelo hay que pedirlo: `?ciego=0`.
+
+    El defecto estaba al revés y se demostró que no funciona. Con `?ciego=1`
+    como opción, basta con teclear la URL sin el parámetro, o pulsar una
+    pestaña —los enlaces no lo arrastran— para acabar etiquetando anclada sin
+    enterarte. El primer lote medido con el prompt v7 se perdió así: 80 correos
+    revisados, y el 91,3 % que salió no era comparable con nada.
+
+    Los dos defectos posibles fallan de forma muy distinta:
+
+        ciego por defecto    olvidarlo => ves menos ayuda
+        normal por defecto   olvidarlo => contaminas los datos EN SILENCIO
+
+    El segundo no avisa. Por eso el defecto es este.
 
     No es una florituras de interfaz, es un instrumento de medida. Ver "el
     modelo dice: promociones" ANTES de pensar la respuesta sesga hacia darle la

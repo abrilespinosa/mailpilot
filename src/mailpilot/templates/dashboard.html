@@ -217,7 +217,9 @@
       <b>Modo ciego.</b> No se te enseña lo que propuso el modelo: elige la
       categoría que darías tú. Así tu etiqueta no queda anclada a su respuesta y
       sirve para medir de verdad.
-      <br><a href="/">volver al modo normal</a>
+      <br><a href="/?ciego=0">ver lo que propuso el modelo</a>
+      — solo si estás atascada: mirarlo hace que ese correo deje de contar
+      como medición.
     </div>
   {% endif %}
 
@@ -234,7 +236,10 @@
     </div>
   {% endif %}
 
-  {% if acciones.pendientes and not ciego %}
+  {# Se ve TAMBIÉN en modo ciego: un contador de acciones no delata lo que
+     propuso el modelo, y sin él no se podía aplicar a Gmail sin salir del
+     modo ciego, que es justo lo que hacía inservible medir mientras trabajas. #}
+  {% if acciones.pendientes %}
     <div class="barra-acciones">
       <span>
         <b>{{ acciones.pendientes }}</b> acciones esperando.
