@@ -19,11 +19,13 @@ from mailpilot.models import (
     ProposedAction,
 )
 from mailpilot.repository import (
+    PropuestaNoDecidida,
     PropuestaYaDecidida,
     correcciones,
     decidir_propuesta,
     generar_propuestas,
     propuestas_pendientes,
+    rectificar_decision,
     save_classification,
     upsert_emails,
 )
@@ -314,3 +316,96 @@ def test_nada_de_esto_toca_gmail(session):
     # No hay estado EXECUTED: aprobar no ejecuta.
     assert decidida.status is ProposalStatus.APPROVED
     assert decidida.status is not ProposalStatus.EXECUTED
+
+
+# ---------------------------------------------------------------------------
+# Rectificar: volver sobre una decisión ya tomada
+# ---------------------------------------------------------------------------
+
+
+def test_rectificar_cambia_la_eleccion_sin_tocar_lo_que_dijo_el_modelo(session):
+    """
+    El caso de uso real: clic equivocado.
+
+    Aunque la decisión cambie tres veces, `category` sigue siendo lo que
+    propuso la IA. Es el dato con el que se la mide y no se pierde nunca.
+    """
+    preparar(session, categoria=Category.PROMOCIONES)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+
+    rectificada = rectificar_decision(session, propuesta.id, Category.TRABAJO)
+
+    assert rectificada.category is Category.PROMOCIONES     # intacto
+    assert rectificada.final_category is Category.TRABAJO
+    assert rectificada.status is ProposalStatus.MODIFIED    # ya no coincide
+
+
+def test_rectificar_hacia_la_categoria_del_modelo_vuelve_a_aprobada(session):
+    """El estado se recalcula solo: si acaba coincidiendo, es una aprobación."""
+    preparar(session, categoria=Category.PROMOCIONES)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+    decidir_propuesta(session, propuesta.id, ProposalStatus.MODIFIED, Category.TRABAJO)
+
+    rectificada = rectificar_decision(session, propuesta.id, Category.PROMOCIONES)
+
+    assert rectificada.status is ProposalStatus.APPROVED
+    assert rectificada.final_category is Category.PROMOCIONES
+    assert correcciones(session) == []      # deja de contar como corrección
+
+
+def test_rectificar_sin_categoria_descarta(session):
+    preparar(session)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+
+    rectificada = rectificar_decision(session, propuesta.id, None)
+
+    assert rectificada.status is ProposalStatus.REJECTED
+    assert rectificada.final_category is None
+
+
+def test_no_se_rectifica_lo_que_aun_no_se_ha_decidido(session):
+    """
+    Rectificar es para volver sobre algo ya mirado. Una propuesta pendiente se
+    decide por el camino normal; si se pudieran hacer las dos cosas, el 409 que
+    protege de dos pestañas abiertas dejaría de servir para nada.
+    """
+    preparar(session)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+
+    with pytest.raises(PropuestaNoDecidida):
+        rectificar_decision(session, propuesta.id, Category.TRABAJO)
+
+
+def test_rectificar_algo_inexistente(session):
+    with pytest.raises(LookupError):
+        rectificar_decision(session, 99999, Category.TRABAJO)
+
+
+def test_cada_rectificacion_deja_rastro_con_el_valor_anterior(session):
+    """
+    Sin esto, rectificar hoy haría irreproducible una medición de ayer: los
+    números de evaluación salen de estas filas. El audit log guarda de qué a
+    qué se cambió, así que siempre se puede reconstruir.
+    """
+    preparar(session, categoria=Category.PROMOCIONES)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+
+    rectificar_decision(session, propuesta.id, Category.AVISOS)
+
+    registro = session.execute(
+        select(AuditLog).where(AuditLog.event_type == "proposal_rectified")
+    ).scalars().one()
+
+    assert registro.detail == {
+        "propuesta": "promociones",   # lo que dijo el modelo
+        "antes": "promociones",       # lo que habías elegido
+        "ahora": "avisos",            # lo que eliges ahora
+    }

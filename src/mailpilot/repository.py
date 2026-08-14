@@ -324,6 +324,97 @@ def decidir_propuesta(
     return propuesta
 
 
+def propuestas_decididas(session: Session, limit: int = 20, offset: int = 0):
+    """Propuestas ya decididas, de la decisión más reciente a la más antigua."""
+    return list(
+        session.execute(
+            select(ActionProposal)
+            .where(ActionProposal.status != ProposalStatus.PENDING)
+            .order_by(
+                ActionProposal.decided_at.desc(),
+                ActionProposal.id.desc(),   # desempate, igual que en las clasificaciones
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
+
+
+class PropuestaNoDecidida(Exception):
+    """Se intentó rectificar una propuesta que todavía está pendiente."""
+
+
+def rectificar_decision(
+    session: Session,
+    proposal_id: int,
+    categoria_elegida: Category | None,
+) -> ActionProposal:
+    """
+    Cambia una decisión YA TOMADA. Para cuando el clic fue el equivocado.
+
+    Es un camino distinto de `decidir_propuesta` a propósito, no una versión
+    relajada. Aquella se niega a decidir dos veces (409) para que dos pestañas
+    abiertas no se pisen en silencio; esto es lo contrario: alguien vuelve a
+    propósito sobre algo que ya miró. Mezclar las dos cosas convertiría el 409
+    en papel mojado.
+
+    `category` sigue sin tocarse NUNCA: es lo que dijo el modelo y es el dato
+    que permite medirlo. Lo que cambia es `final_category`, y el estado se
+    recalcula solo: coincide con el modelo -> aprobada; no coincide ->
+    modificada; sin categoría -> rechazada.
+
+    Cada rectificación deja su propia entrada en el audit log con el valor
+    anterior. Eso importa más de lo que parece: los números de evaluación salen
+    de estas filas, así que sin el registro, rectificar hoy haría irreproducible
+    una medición de ayer.
+    """
+    propuesta = session.get(ActionProposal, proposal_id)
+    if propuesta is None:
+        raise LookupError(f"No existe la propuesta {proposal_id}")
+
+    if propuesta.status is ProposalStatus.PENDING:
+        raise PropuestaNoDecidida(
+            f"La propuesta {proposal_id} está pendiente: decídela primero"
+        )
+
+    anterior = propuesta.final_category
+
+    if categoria_elegida is None:
+        propuesta.final_category = None
+        propuesta.status = ProposalStatus.REJECTED
+    else:
+        propuesta.final_category = categoria_elegida
+        propuesta.status = (
+            ProposalStatus.APPROVED
+            if categoria_elegida == propuesta.category
+            else ProposalStatus.MODIFIED
+        )
+
+    propuesta.decided_at = datetime.now(timezone.utc)
+
+    session.add(
+        AuditLog(
+            action_proposal_id=propuesta.id,
+            email_id=propuesta.email_id,
+            event_type="proposal_rectified",
+            detail={
+                "propuesta": propuesta.category.value if propuesta.category else None,
+                "antes": anterior.value if anterior else None,
+                "ahora": (
+                    propuesta.final_category.value
+                    if propuesta.final_category
+                    else None
+                ),
+            },
+        )
+    )
+    session.commit()
+
+    return propuesta
+
+
 def estadisticas(session: Session) -> dict:
     """
     Resumen de lo decidido hasta ahora, para la cabecera del dashboard.

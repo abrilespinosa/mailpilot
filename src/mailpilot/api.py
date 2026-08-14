@@ -19,7 +19,13 @@ from sqlalchemy.orm import Session
 from mailpilot import web
 from mailpilot.db import get_session
 from mailpilot.models import ActionProposal, Email, ProposalStatus
-from mailpilot.repository import PropuestaYaDecidida, decidir_propuesta, propuestas_pendientes
+from mailpilot.repository import (
+    PropuestaNoDecidida,
+    PropuestaYaDecidida,
+    decidir_propuesta,
+    propuestas_pendientes,
+    rectificar_decision,
+)
 from mailpilot.schemas import DecisionIn, EmailDetail, EmailPage, ProposalOut, ProposalPage
 
 app = FastAPI(
@@ -179,3 +185,28 @@ def reject_proposal(
 ) -> ActionProposal:
     """Descarta la propuesta. No se aplica ninguna categoría."""
     return _decidir(session, proposal_id, ProposalStatus.REJECTED)
+
+
+@app.post("/proposals/{proposal_id}/rectify", response_model=ProposalOut, tags=["propuestas"])
+def rectify_proposal(
+    proposal_id: int,
+    decision: DecisionIn,
+    session: Session = Depends(get_session),
+) -> ActionProposal:
+    """
+    Cambia una decisión ya tomada. Para arreglar un clic equivocado.
+
+    Endpoint aparte a propósito, no un `approve` que ignore el 409: aquel
+    conflicto existe para que dos pestañas abiertas no se pisen sin avisar, y
+    esto es una corrección deliberada. Si se relajara el otro, el 409 dejaría
+    de proteger nada.
+
+    `category` (lo que dijo el modelo) sigue intacto. Sin categoría en el
+    cuerpo, la propuesta queda descartada.
+    """
+    try:
+        return rectificar_decision(session, proposal_id, decision.category)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Propuesta no encontrada")
+    except PropuestaNoDecidida as error:
+        raise HTTPException(status_code=409, detail=str(error))

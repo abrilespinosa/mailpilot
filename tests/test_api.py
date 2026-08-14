@@ -151,6 +151,10 @@ ESCRITURA_PERMITIDA = {
     ("POST", "/proposals/{proposal_id}/approve"),
     ("POST", "/proposals/{proposal_id}/modify"),
     ("POST", "/proposals/{proposal_id}/reject"),
+    # Rectificar una decisión ya tomada. Endpoint aparte a propósito: los tres
+    # de arriba devuelven 409 sobre algo ya decidido, y esa protección contra
+    # dos pestañas pisándose tiene que seguir intacta.
+    ("POST", "/proposals/{proposal_id}/rectify"),
 }
 
 

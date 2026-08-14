@@ -27,7 +27,11 @@ from sqlalchemy.orm import Session
 
 from mailpilot.db import get_session
 from mailpilot.models import ActionProposal, Category, ProposalStatus
-from mailpilot.repository import estadisticas, propuestas_pendientes
+from mailpilot.repository import (
+    estadisticas,
+    propuestas_decididas,
+    propuestas_pendientes,
+)
 
 router = APIRouter(tags=["dashboard"])
 
@@ -94,7 +98,7 @@ def dashboard(
     la comparación se puede hacer después sin haberla visto antes.
     """
     pendientes = propuestas_pendientes(session, limit=limit)
-    total_pendientes = session.execute(
+    total = session.execute(
         select(func.count())
         .select_from(ActionProposal)
         .where(ActionProposal.status == ProposalStatus.PENDING)
@@ -105,15 +109,60 @@ def dashboard(
         name="dashboard.html",
         context={
             "propuestas": pendientes,
-            "total_pendientes": total_pendientes,
+            "total": total,
             "mostrando": len(pendientes),
+            "offset": 0,
+            "limit": limit,
             "categorias": list(Category),
             "stats": estadisticas(session),
             "ciego": ciego,
+            "vista": "pendientes",
             "logo": buscar_asset("logo"),
             # El logo horizontal lleva "MailPilot" en marino sobre fondo
             # transparente: sobre el fondo oscuro sería invisible. Por eso hay
             # una variante y la plantilla las cambia con <picture>.
+            "logo_oscuro": buscar_asset("logo-oscuro"),
+            "favicon": buscar_asset("favicon"),
+        },
+    )
+
+
+@router.get("/decididas", response_class=HTMLResponse, include_in_schema=False)
+def decididas(
+    request: Request,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    """
+    Lo ya revisado, para poder arreglar un clic equivocado.
+
+    Aquí sí se enseñan las dos cosas a la vez: lo que propuso el modelo y lo
+    que elegiste tú. No hay riesgo de anclaje porque ya decidiste; lo que hace
+    falta ahora es justo lo contrario, ver en qué se diferencian.
+
+    Tiene paginación de verdad, a diferencia de la lista de pendientes: las
+    decididas no desaparecen al tocarlas, así que la lista solo crece.
+    """
+    total = session.execute(
+        select(func.count())
+        .select_from(ActionProposal)
+        .where(ActionProposal.status != ProposalStatus.PENDING)
+    ).scalar_one()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "propuestas": propuestas_decididas(session, limit=limit, offset=offset),
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "categorias": list(Category),
+            "stats": estadisticas(session),
+            "ciego": False,
+            "vista": "decididas",
+            "logo": buscar_asset("logo"),
             "logo_oscuro": buscar_asset("logo-oscuro"),
             "favicon": buscar_asset("favicon"),
         },

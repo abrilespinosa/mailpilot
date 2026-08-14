@@ -50,10 +50,21 @@ class ClassificationResult(BaseModel):
 
 # Versión del prompt. Se guarda en los resultados de evaluación para poder
 # comparar mediciones: sin esto, un número suelto no dice contra qué se midió.
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 
 # Las definiciones salen del ADR 001. Si cambian allí, hay que cambiarlas
 # aquí: son la especificación que lee el modelo.
+#
+# v6, tras medir test3 a ciegas (82,1%) y revisar 158 correos reales:
+# - "personal" era la peor categoría (3/7) y NO era culpa del modelo. El
+#   ADR definía personal por el REMITENTE ("una persona real escribiéndote")
+#   y la usuaria etiqueta por el ASUNTO (su vida privada). El clasificador
+#   obedecía una especificación equivocada. Ver la revisión 2026-08-14 del
+#   ADR 001.
+# - Regla 0 nueva: citas y consultas médicas son "personal" aunque las mande
+#   una empresa automáticamente. El dinero de la salud sigue en "tramites".
+# - Los correos que la usuaria se manda a sí misma dejan de ser "personal"
+#   por defecto: mandan por asunto.
 #
 # v5, tras la primera medición LIMPIA (test2, 73,8%):
 # - "trabajo" estaba aprendido como "portal de empleo -> trabajo" en vez de
@@ -88,8 +99,10 @@ Eres un clasificador de correo electrónico. Tu única tarea es asignar UNA
 categoría a cada correo.
 
 CATEGORÍAS:
-- personal: una persona real escribiéndote directamente, aunque llegue a
-  través de un servicio (alguien que comparte contigo una carpeta, por ejemplo)
+- personal: asuntos de tu VIDA PRIVADA. Familia y amigos escribiéndote, aunque
+  llegue a través de un servicio (alguien que comparte contigo una carpeta), y
+  SALUD: citas médicas, recordatorios de consulta, resultados, analíticas,
+  óptica, dentista, revisiones
 - trabajo: CUALQUIER oferta de trabajo remunerado o gestión de tu empleo. Da
   igual quién lo mande: un portal de empleo, una agencia, o una empresa
   escribiéndote directamente. Vacantes, castings, eventos pagados,
@@ -111,35 +124,42 @@ CATEGORÍAS:
   no encaje con claridad
 
 REGLAS, EN ORDEN DE PRIORIDAD:
-0. Si una PERSONA CONCRETA con nombre y apellido ha hecho algo DIRIGIDO A TI
-   —compartir un documento contigo, invitarte, escribirte— es "personal". Da
-   igual que lo entregue un servicio: "Lucía Espinosa via Notion", "Mónica
-   Tortuero (vía Google Drive)" son personas, no plataformas. Los correos que
-   la usuaria se envía a sí misma también son "personal".
+0. SALUD: si el correo va de una CITA o CONSULTA médica —recordatorio de cita,
+   resultados, analítica, óptica, dentista, revisión— es "personal", AUNQUE lo
+   mande una empresa de forma automática y aunque parezca una notificación.
+   EXCEPCIÓN: si va de DINERO (factura, recibo, cobro del seguro), es
+   "tramites". La frontera es cita o resultado frente a cobro.
+1. Si una PERSONA CONCRETA con nombre y apellido ha hecho algo DIRIGIDO A TI
+   —compartir un documento contigo, invitarte, escribirte— es "personal", SALVO
+   que el asunto sea de trabajo: entonces manda el asunto. Da igual que lo
+   entregue un servicio: "Lucía Espinosa via Notion", "Mónica Tortuero (vía
+   Google Drive)" son personas, no plataformas.
    EXCEPCIÓN: si esa persona te REENVÍA un correo de otro, clasifícalo por su
    CONTENIDO, no por quién lo reenvía. Reenviar no es escribirte.
-1. Si te ofrecen TRABAJO REMUNERADO o es una gestión de tu empleo, es
+   Los correos que la usuaria SE ENVÍA A SÍ MISMA se clasifican por su ASUNTO
+   como cualquier otro; no son "personal" por defecto.
+2. Si te ofrecen TRABAJO REMUNERADO o es una gestión de tu empleo, es
    "trabajo". No importa el remitente: un portal, una agencia de casting, o
    una empresa directamente. Vale AUNQUE use la palabra "ofertas" (en español
    significa tanto descuentos como vacantes) y AUNQUE hable de un "evento":
    si te pagan por ir, es trabajo, no publicidad.
-2. Si es transaccional o sobre tu cuenta (código, contraseña, verificación,
+3. Si es transaccional o sobre tu cuenta (código, contraseña, verificación,
    seguridad, alta, términos de uso), es "avisos" AUNQUE lo envíe una marca
    comercial.
-3. Si se refiere a una compra concreta que la usuaria hizo, es "compras",
+4. Si se refiere a una compra concreta que la usuaria hizo, es "compras",
    incluidas las encuestas de satisfacción posteriores.
-4. Entre "tramites" y "avisos" gana "tramites" cuando hay dinero, papeleo o
+5. Entre "tramites" y "avisos" gana "tramites" cuando hay dinero, papeleo o
    una gestión de por medio.
-5. Si una PLATAFORMA te habla de CONTENIDO (libros, artículos, retos,
+6. Si una PLATAFORMA te habla de CONTENIDO (libros, artículos, retos,
    novedades editoriales, resúmenes de lo que leen otros usuarios) es
    "otros". Si te habla de TU CUENTA (acceso, seguridad, configuración) es
    "avisos". El mismo remitente manda las dos cosas. Esta regla NO se
-   aplica cuando detrás hay una persona concreta: eso es la regla 0.
-6. Una notificación de una plataforma sobre tu actividad dentro de ella es
+   aplica cuando detrás hay una persona concreta: eso es la regla 1.
+7. Una notificación de una plataforma sobre tu actividad dentro de ella es
    "avisos", NUNCA "otros": menciones, logros, insignias, reacciones a lo que
    publicas, y el estado de una solicitud o registro que hiciste.
-7. Publicidad sin relación con una compra concreta es "promociones".
-8. Si sigues dudando, "otros".
+8. Publicidad sin relación con una compra concreta es "promociones".
+9. Si sigues dudando, "otros".
 
 EJEMPLOS:
 - "Resumen de ofertas diarias" de un portal de empleo -> trabajo
@@ -161,6 +181,10 @@ EJEMPLOS:
 - "Tu solicitud está en revisión" -> avisos
 - "Hemos recibido tu solicitud" -> avisos
 - "Mónica (vía Google Drive) ha compartido una carpeta" -> personal
+- "Recordatorio cita" de una óptica o clínica -> personal
+- "Resultados de tu analítica disponibles" -> personal
+- "Factura de tu seguro de salud" -> tramites
+- "Re: [#21317373] Autorizaciones", enviado por ti misma -> tramites
 - "Weekly Digest" de una plataforma de contenido -> otros
 - "Gana un bono de 3.500 EUR para viajar" del banco -> promociones
 - "Informe mensual BBVA" -> tramites

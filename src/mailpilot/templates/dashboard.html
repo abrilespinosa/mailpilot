@@ -120,6 +120,16 @@
     }
 
     .aviso { margin-top: .75rem; font-size: .82rem; color: var(--no); }
+    .guardado { margin-top: .75rem; font-size: .82rem; color: var(--ok); }
+    .pestanas { display: flex; gap: 1.25rem; margin-bottom: 1.25rem; font-size: .9rem; }
+    .pestanas a { color: var(--suave); text-decoration: none; padding-bottom: .3rem; }
+    .pestanas a.activa { color: var(--acento); font-weight: 600; border-bottom: 2px solid var(--acento); }
+    .veredicto { font-size: .82rem; color: var(--suave); margin: 0 0 .8rem; }
+    .veredicto b { color: var(--texto); }
+    .veredicto.corregida b:last-child { color: var(--acento); }
+    .paginacion { display: flex; gap: 1.25rem; align-items: center; justify-content: center;
+                  color: var(--suave); font-size: .85rem; margin-top: 1.5rem; }
+    .paginacion a { color: var(--acento); }
     .modo-ciego {
       background: var(--tarjeta); border: 1px dashed var(--acento);
       border-radius: 10px; padding: .8rem 1.1rem; margin-bottom: 1.5rem; font-size: .87rem;
@@ -158,6 +168,11 @@
   </div>
   <p class="lema">La IA propone. Tú decides. Nada se ejecuta sin tu visto bueno.</p>
 
+  <nav class="pestanas">
+    <a href="/" class="{% if vista == 'pendientes' %}activa{% endif %}">Pendientes</a>
+    <a href="/decididas" class="{% if vista == 'decididas' %}activa{% endif %}">Ya revisadas</a>
+  </nav>
+
   {% if ciego %}
     <div class="modo-ciego">
       <b>Modo ciego.</b> No se te enseña lo que propuso el modelo: elige la
@@ -184,15 +199,25 @@
 
   {% if not propuestas %}
     <p class="vacio">
-      No hay nada pendiente.<br>
-      Ejecuta <code>python scripts/ingest.py</code>, <code>classify.py</code>
-      y <code>propose.py</code> para traer correos nuevos.
+      {% if vista == 'decididas' %}
+        Todavía no has revisado nada.
+      {% else %}
+        No hay nada pendiente.<br>
+        Ejecuta <code>python scripts/ingest.py</code>, <code>classify.py</code>
+        y <code>propose.py</code> para traer correos nuevos.
+      {% endif %}
     </p>
   {% else %}
     {% for p in propuestas %}
+      {# El chip resaltado NO es el mismo en las dos vistas: en pendientes es
+         lo que propone el modelo, en revisadas es lo que elegiste tú. `marcada`
+         resuelve eso una vez en lugar de repetir el condicional. #}
+      {% set marcada = p.final_category if vista == 'decididas' else p.category %}
+
       {# data-id es lo único que necesita el JavaScript: el resto de la
          decisión (qué se puede hacer, qué se guarda) lo aplica el servidor. #}
-      <article class="propuesta" data-id="{{ p.id }}">
+      <article class="propuesta" data-id="{{ p.id }}"
+               {% if vista == 'decididas' %}data-rectificar="1"{% endif %}>
         <div class="meta">
           <span class="remitente">{{ p.email.sender }}</span>
           <span>{{ p.email.received_at.strftime("%d %b %Y, %H:%M") }}</span>
@@ -210,16 +235,29 @@
           </p>
         {% endif %}
 
+        {% if vista == 'decididas' %}
+          <p class="veredicto {% if p.category != p.final_category and p.final_category %}corregida{% endif %}">
+            {% if not p.final_category %}
+              Descartada. El modelo proponía <b>{{ p.category.value }}</b>.
+            {% elif p.category == p.final_category %}
+              Le diste la razón: <b>{{ p.final_category.value }}</b>.
+            {% else %}
+              El modelo dijo <b>{{ p.category.value }}</b>, tú elegiste
+              <b>{{ p.final_category.value }}</b>.
+            {% endif %}
+          </p>
+        {% endif %}
+
         <div class="acciones">
           {# `data-propuesta` sigue estando en modo ciego, porque el navegador
              necesita saber si tu clic es "aprobar" o "corregir" para llamar al
              endpoint correcto. Lo que se oculta es la PISTA VISUAL: ni el
              resaltado, ni el ✓, ni la explicación. #}
           {% for categoria in categorias %}
-            <button class="chip {% if categoria == p.category and not ciego %}propuesta-actual{% endif %}"
+            <button class="chip {% if categoria == marcada and not ciego %}propuesta-actual{% endif %}"
                     data-categoria="{{ categoria.value }}"
                     {% if categoria == p.category %}data-propuesta="1"{% endif %}>
-              {% if categoria == p.category and not ciego %}✓ {% endif %}{{ categoria.value }}
+              {% if categoria == marcada and not ciego %}✓ {% endif %}{{ categoria.value }}
             </button>
           {% endfor %}
           <button class="descartar" data-rechazar="1">descartar</button>
@@ -227,9 +265,19 @@
       </article>
     {% endfor %}
 
-    {% if total_pendientes > mostrando %}
+    {% if vista == 'decididas' %}
+      <p class="paginacion">
+        {% if offset > 0 %}
+          <a href="/decididas?offset={{ offset - limit }}&limit={{ limit }}">← anteriores</a>
+        {% endif %}
+        <span>{{ offset + 1 }}–{{ offset + propuestas|length }} de {{ total }}</span>
+        {% if offset + limit < total %}
+          <a href="/decididas?offset={{ offset + limit }}&limit={{ limit }}">siguientes →</a>
+        {% endif %}
+      </p>
+    {% elif total > mostrando %}
       <p class="vacio">
-        Mostrando {{ mostrando }} de {{ total_pendientes }}. Decide estas y recarga.
+        Mostrando {{ mostrando }} de {{ total }}. Decide estas y recarga.
       </p>
     {% endif %}
   {% endif %}
@@ -251,12 +299,69 @@ document.addEventListener("click", (evento) => {
   const tarjeta = boton.closest(".propuesta");
   if (tarjeta.dataset.ocupada) return;   // evita el doble clic nervioso
 
+  // En "ya revisadas" todo clic es una rectificación: la propuesta ya se
+  // decidió, así que approve/modify devolverían 409 a propósito.
+  if (tarjeta.dataset.rectificar) {
+    return rectificar(tarjeta, boton.dataset.rechazar ? null : boton.dataset.categoria);
+  }
+
   if (boton.dataset.rechazar) return decidir(tarjeta, "reject");
   // Pulsar la categoría que ya proponía el modelo es aceptarla; pulsar otra
   // es corregirle. Un solo gesto para las dos cosas.
   if (boton.dataset.propuesta) return decidir(tarjeta, "approve");
   return decidir(tarjeta, "modify", boton.dataset.categoria);
 });
+
+async function rectificar(tarjeta, categoria) {
+  tarjeta.dataset.ocupada = "1";
+
+  try {
+    const respuesta = await fetch(`/proposals/${tarjeta.dataset.id}/rectify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category: categoria }),
+    });
+
+    if (respuesta.ok) {
+      // La tarjeta NO se quita: aquí no estás vaciando una bandeja, estás
+      // repasando. Se actualiza en el sitio para no perder dónde ibas.
+      pintarElegida(tarjeta, await respuesta.json());
+    } else {
+      avisar(tarjeta, `No se pudo guardar (error ${respuesta.status}).`);
+    }
+  } catch (error) {
+    avisar(tarjeta, "No hay conexión con el servidor. ¿Sigue vivo uvicorn?");
+  }
+
+  delete tarjeta.dataset.ocupada;
+}
+
+function pintarElegida(tarjeta, propuesta) {
+  tarjeta.querySelectorAll(".chip").forEach((chip) => {
+    const elegido = chip.dataset.categoria === propuesta.final_category;
+    chip.classList.toggle("propuesta-actual", elegido);
+    chip.textContent = (elegido ? "✓ " : "") + chip.dataset.categoria;
+  });
+
+  const veredicto = tarjeta.querySelector(".veredicto");
+  if (veredicto) {
+    const modelo = propuesta.category, tuya = propuesta.final_category;
+    veredicto.textContent = !tuya
+      ? `Descartada. El modelo proponía ${modelo}.`
+      : modelo === tuya
+      ? `Le diste la razón: ${tuya}.`
+      : `El modelo dijo ${modelo}, tú elegiste ${tuya}.`;
+    veredicto.classList.toggle("corregida", Boolean(tuya) && modelo !== tuya);
+  }
+
+  let ok = tarjeta.querySelector(".guardado");
+  if (!ok) {
+    ok = document.createElement("p");
+    ok.className = "guardado";
+    tarjeta.append(ok);
+  }
+  ok.textContent = "Cambio guardado.";
+}
 
 async function decidir(tarjeta, accion, categoria) {
   tarjeta.dataset.ocupada = "1";

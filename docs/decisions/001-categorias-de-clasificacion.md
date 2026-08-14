@@ -191,3 +191,48 @@ los fallos eran error de etiquetado, no del clasificador.
 - Si en la Fase 9 se decide escribir estas categorías en Gmail como etiquetas, serían
   etiquetas **nuevas** creadas por MailPilot. Nunca se modifican ni se borran las etiquetas
   que la usuaria ya tenía.
+
+## Revisión 2026-08-14 — `personal` deja de ser "quién" y pasa a ser "de qué"
+
+Medido sobre 158 correos revisados en el dashboard, `personal` acertó 3 de 7: la
+peor categoría con diferencia, y la que la usuaria declaró más importante.
+
+Al mirar los fallos, ninguno era del modelo. La definición vieja decía **una
+persona real escribiéndote**, o sea un criterio sobre el REMITENTE. La usuaria
+etiqueta con un criterio sobre el ASUNTO: su vida privada.
+
+Los tres casos que lo destaparon:
+
+| correo | modelo | usuaria |
+|---|---|---|
+| Optica2000, "Recordatorio cita" | `compras` | `personal` |
+| Mónica T., "GAFAS" | `trabajo` | `personal` |
+| ella misma, "Re: [#21317373] Autorizaciones" | `personal` | `tramites` |
+
+Con la definición vieja el modelo acertaba los tres: Optica2000 no es una
+persona, y un correo enviado por ella misma sí lo es. El clasificador estaba
+obedeciendo una especificación equivocada.
+
+### Definición nueva
+
+> `personal`: asuntos de tu vida privada. Familia y amigos escribiéndote, y
+> salud: citas médicas, recordatorios de consulta, resultados, óptica, dentista.
+
+### Reglas de desempate nuevas
+
+- Una **cita o gestión de salud** es `personal` aunque la mande una empresa
+  automáticamente. Gana a `avisos` y a `compras`.
+- El **dinero** de la salud no: una factura del seguro o un recibo de la
+  clínica es `tramites`. La frontera es cita/resultado (`personal`) frente a
+  cobro (`tramites`).
+- Un correo de una persona real sobre un asunto de trabajo es `trabajo`, no
+  `personal`. Manda el asunto, no el remitente.
+- Correos que la usuaria se envía a sí misma: mandan por asunto como cualquier
+  otro. "Autorizaciones" con número de expediente es `tramites`.
+
+### Consecuencia
+
+Invalida la comparación con las medidas anteriores en lo que toca a `personal`.
+`test3` (82,1 %) se midió con la definición vieja; el número global sigue siendo
+válido como foto de aquel momento, pero no es comparable con lo que se mida a
+partir de ahora en esa categoría.

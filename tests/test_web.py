@@ -155,7 +155,10 @@ def test_el_modo_ciego_oculta_lo_que_dijo_el_modelo(client, session):
     # propuesta-actual"` y no la regla CSS `.chip.propuesta-actual`, que sigue
     # estando en la hoja de estilos aunque no la use nadie.
     assert "chip propuesta-actual" not in html
-    assert "✓" not in html
+    # `✓ <categoría>`, no el ✓ suelto: ese carácter también aparece dentro del
+    # JavaScript de la vista de revisadas, y ahí no delata nada.
+    for categoria in Category:
+        assert f"✓ {categoria.value}" not in html
     assert "acierto real" not in html
 
 
@@ -326,3 +329,85 @@ def test_el_dashboard_no_escribe_nada():
 
     for route in web.router.routes:
         assert route.methods == {"GET"}, f"{route.path} escribe algo"
+
+
+# ---------------------------------------------------------------------------
+# Vista de ya revisadas
+# ---------------------------------------------------------------------------
+
+
+def test_las_revisadas_marcan_TU_eleccion_no_la_del_modelo(client, session):
+    """
+    La diferencia clave entre las dos vistas.
+
+    En pendientes el chip resaltado es lo que propone el modelo; en revisadas
+    es lo que elegiste tú. Si aquí se resaltara la del modelo, verías marcada
+    una categoría que precisamente habías descartado.
+    """
+    propuesta = propuesta_lista(session, categoria=Category.PROMOCIONES)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.MODIFIED, Category.TRABAJO)
+
+    html = client.get("/decididas").text
+
+    assert '<button class="chip propuesta-actual"\n                    data-categoria="trabajo"' in html
+    assert "El modelo dijo <b>promociones</b>" in html
+    assert "tú elegiste" in html
+
+
+def test_las_revisadas_se_pueden_rectificar(client, session):
+    """Todo clic en esta vista va a /rectify, que no devuelve 409."""
+    propuesta = propuesta_lista(session)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+
+    html = client.get("/decididas").text
+    assert 'data-rectificar="1"' in html
+
+    respuesta = client.post(
+        f"/proposals/{propuesta.id}/rectify", json={"category": "avisos"}
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["final_category"] == "avisos"
+    assert respuesta.json()["category"] == "promociones"   # lo del modelo, intacto
+
+
+def test_las_pendientes_no_salen_en_revisadas_ni_al_reves(client, session):
+    pendiente = propuesta_lista(session, message_id="a", subject="Sin decidir")
+    decidida = propuesta_lista(session, message_id="b", subject="Ya decidida")
+    decidir_propuesta(session, decidida.id, ProposalStatus.APPROVED)
+
+    revisadas = client.get("/decididas").text
+    assert "Ya decidida" in revisadas
+    assert "Sin decidir" not in revisadas
+
+    pendientes = client.get("/").text
+    assert "Sin decidir" in pendientes
+    assert "Ya decidida" not in pendientes
+
+
+def test_rectificar_algo_pendiente_da_409(client, session):
+    """
+    El 409 de la Fase 7 sigue en pie: rectificar no es un atajo para saltárselo.
+    """
+    propuesta = propuesta_lista(session)
+
+    respuesta = client.post(
+        f"/proposals/{propuesta.id}/rectify", json={"category": "avisos"}
+    )
+
+    assert respuesta.status_code == 409
+
+
+def test_las_revisadas_tienen_paginacion(client, session):
+    """
+    Las decididas no desaparecen al tocarlas, así que la lista solo crece y
+    necesita paginar de verdad, a diferencia de la de pendientes.
+    """
+    for n in range(3):
+        p = propuesta_lista(session, message_id=f"m{n}", subject=f"Correo {n}")
+        decidir_propuesta(session, p.id, ProposalStatus.APPROVED)
+
+    html = client.get("/decididas?limit=2").text
+
+    assert "1–2 de 3" in html
+    assert "/decididas?offset=2&limit=2" in html
