@@ -1,9 +1,12 @@
 """
 Modelo de datos de MailPilot.
 
-Cuatro tablas: Email (lo que llega de Gmail), Classification (lo que dice la
-IA), ActionProposal (lo que se propone hacer y qué decidió la usuaria) y
-AuditLog (qué pasó de verdad).
+Cinco tablas: Email (lo que llega de Gmail), Classification (lo que dice la
+IA), ActionProposal (qué categoría se propone y cuál decidió la usuaria),
+GmailAction (qué se hace sobre Gmail) y AuditLog (qué pasó de verdad).
+
+ActionProposal y GmailAction están separadas a propósito: clasificar y tirar
+son dos ejes independientes. Ver docs/decisions/002-tirar-no-es-corregir.md.
 
 Las categorías están definidas en docs/decisions/001-categorias-de-clasificacion.md
 """
@@ -70,6 +73,42 @@ class ProposedAction(str, enum.Enum):
     MOVE_TO_TRASH = "move_to_trash"
 
 
+class GmailActionType(str, enum.Enum):
+    """
+    Lo ÚNICO que MailPilot puede hacerle a Gmail.
+
+    Dos valores, y la lista es cerrada a propósito. No existe `send` ni
+    `delete`, así que ninguna parte del sistema tiene forma de pedirlos: no es
+    que estén prohibidos, es que no se pueden nombrar.
+
+    - `apply_label`: crea (si hace falta) y aplica una etiqueta de MailPilot.
+      Nunca toca ni borra las etiquetas que la usuaria ya tenía.
+    - `move_to_trash`: papelera de Gmail, reversible 30 días.
+
+    El borrado permanente además es imposible por scope: exige
+    `https://mail.google.com/`, que no pedimos. Enviar correo sí lo permitiría
+    `gmail.modify`, y por eso hace falta este enum más el test que rastrea el
+    código fuente. Ver ADR 003.
+    """
+
+    APPLY_LABEL = "apply_label"
+    MOVE_TO_TRASH = "move_to_trash"
+
+
+class GmailActionStatus(str, enum.Enum):
+    """
+    Ciclo de vida de una acción sobre Gmail.
+
+    No hay estado de "aprobada": una fila solo existe si la usuaria la pidió.
+    Crear la fila ES la autorización, así que no puede haber una acción
+    esperando permiso ni un camino que se salte la aprobación.
+    """
+
+    PENDING = "pending"
+    EXECUTED = "executed"
+    FAILED = "failed"
+
+
 class ProposalStatus(str, enum.Enum):
     """Ciclo de vida de una propuesta, desde que nace hasta que se ejecuta."""
 
@@ -102,6 +141,8 @@ def _pg_enum(enum_class: type[enum.Enum], name: str) -> SAEnum:
 CATEGORY_ENUM = _pg_enum(Category, "category")
 PROPOSED_ACTION_ENUM = _pg_enum(ProposedAction, "proposed_action")
 PROPOSAL_STATUS_ENUM = _pg_enum(ProposalStatus, "proposal_status")
+GMAIL_ACTION_TYPE_ENUM = _pg_enum(GmailActionType, "gmail_action_type")
+GMAIL_ACTION_STATUS_ENUM = _pg_enum(GmailActionStatus, "gmail_action_status")
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +188,9 @@ class Email(Base):
         back_populates="email", cascade="all, delete-orphan"
     )
     proposals: Mapped[list["ActionProposal"]] = relationship(
+        back_populates="email", cascade="all, delete-orphan"
+    )
+    gmail_actions: Mapped[list["GmailAction"]] = relationship(
         back_populates="email", cascade="all, delete-orphan"
     )
 
@@ -268,6 +312,80 @@ class ActionProposal(Base):
 
     def __repr__(self) -> str:
         return f"<ActionProposal {self.proposed_action.value} {self.status.value}>"
+
+
+class GmailAction(Base):
+    """
+    Lo que MailPilot va a hacer, o ya ha hecho, sobre Gmail.
+
+    POR QUÉ ES UNA TABLA APARTE Y NO UNAS COLUMNAS EN ActionProposal
+    ----------------------------------------------------------------
+    El ADR 002 dice que clasificar y tirar son dos ejes independientes: la
+    usuaria tira muchos correos de `promociones` y `otros` que están
+    perfectamente clasificados.
+
+    La prueba de que hacía falta separarlos es concreta. Metiendo la papelera
+    en `ActionProposal`, las funciones `estadisticas()` y `correcciones()`
+    necesitarían un `WHERE proposed_action = 'categorize'` para no contar lo
+    tirado. El ADR 002 dejó dicho que tener que tocarlas era exactamente la
+    señal de que los ejes se estaban mezclando. Con esta tabla no se tocan.
+
+    Y el número que hay detrás: si lo tirado saliera del cálculo del acierto,
+    este subiría 3,3 puntos borrando el 42 % de la muestra, justo las dos
+    categorías donde el modelo va peor.
+
+    NO HAY ENVIAR NI BORRAR
+    -----------------------
+    `GmailActionType` tiene dos valores y ninguno es `send` ni `delete`. Es la
+    misma defensa de enum cerrado que se usa contra la prompt injection: no se
+    trata de vigilar que nadie lo pida, es que no existe la forma de pedirlo.
+    Ver ADR 003.
+    """
+
+    __tablename__ = "gmail_actions"
+    __table_args__ = (
+        # Una acción pendiente por tipo y correo. Sin esto, dos clics seguidos
+        # en "a la papelera" encolarían la misma acción dos veces.
+        Index(
+            "uq_una_accion_pendiente_por_tipo",
+            "email_id",
+            "action",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    email_id: Mapped[int] = mapped_column(
+        ForeignKey("emails.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # De qué decisión sale esta acción. Nullable porque mover a papelera lo
+    # pide la usuaria directamente, sin que la IA lo haya propuesto.
+    action_proposal_id: Mapped[int | None] = mapped_column(
+        ForeignKey("action_proposals.id", ondelete="SET NULL"), index=True
+    )
+
+    action: Mapped[GmailActionType] = mapped_column(
+        GMAIL_ACTION_TYPE_ENUM, nullable=False
+    )
+    status: Mapped[GmailActionStatus] = mapped_column(
+        GMAIL_ACTION_STATUS_ENUM, nullable=False, default=GmailActionStatus.PENDING
+    )
+
+    # Qué etiqueta se aplicó, o el error de Gmail si falló.
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    email: Mapped["Email"] = relationship(back_populates="gmail_actions")
+
+    def __repr__(self) -> str:
+        return f"<GmailAction {self.action.value} {self.status.value}>"
 
 
 class AuditLog(Base):

@@ -75,3 +75,40 @@ No cambia:
 - Hay que añadir el scope en la pantalla de consentimiento de Google Cloud
   Console antes de reautenticar.
 - Revertir es trivial: volver a `readonly`, borrar el token y reautenticar.
+
+## Corrección 2026-08-14 — `gmail.modify` SÍ permite enviar correo
+
+La tabla de arriba se centró en el borrado permanente y dejó fuera algo
+importante: `users.messages.send` acepta `gmail.modify`. El scope que hemos
+activado permite enviar correo en nombre de la usuaria.
+
+No hay alternativa más estrecha: `messages.trash` exige `gmail.modify`, y
+`gmail.labels` no permite mover a la papelera. Para tener papelera hay que
+aceptar la capacidad de enviar.
+
+Requisito de la usuaria, explícito:
+
+> nunca se debe poder mandar un correo, solo categorizar o meter en papelera
+
+Las dos garantías del proyecto NO son del mismo tipo, y conviene no confundirlas:
+
+| garantía | quién la impone | fuerza |
+|---|---|---|
+| nunca borrado permanente | **Google**, vía el scope | un bug no puede saltársela |
+| nunca enviar correo | **nuestro código** | depende de nosotros; hay que vigilarla |
+
+### Cómo se sostiene la segunda
+
+1. **Un único módulo escribe en Gmail.** `src/mailpilot/gmail_actions.py` es el
+   único sitio autorizado a llamar a la API de escritura, y expone exactamente
+   dos operaciones: aplicar etiqueta y mover a papelera.
+2. **El enum de acciones tiene dos valores.** No existe `send` ni `delete`, así
+   que no hay forma de pedirlo: la misma defensa de enum cerrado que se usa
+   contra la prompt injection.
+3. **Un test rastrea el código fuente** buscando llamadas prohibidas
+   (`.send(`, `.drafts(`, `messages().delete`). Si alguien las escribe, aunque
+   sea en otro módulo, el test falla.
+
+La tercera es la importante: las dos primeras son disciplina, y la disciplina
+se olvida. El test es lo que convierte la regla en algo que no depende de que
+nadie se acuerde.
