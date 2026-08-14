@@ -32,12 +32,14 @@ from mailpilot.repository import (
     PropuestaYaDecidida,
     acciones_pendientes,
     decidir_propuesta,
+    encolar_etiquetas_atrasadas,
     encolar_accion,
     propuestas_pendientes,
     rectificar_decision,
 )
 from mailpilot.schemas import (
     ActionOut,
+    BackfillOut,
     DecisionIn,
     EmailDetail,
     EmailPage,
@@ -261,6 +263,19 @@ def request_trash(
 
     # Ya estaba pedida: no es un error, es un segundo clic.
     return {"pedida": accion is not None, "accion": "move_to_trash"}
+
+
+@app.post("/actions/backfill", response_model=BackfillOut, tags=["acciones"])
+def backfill_labels(session: Session = Depends(get_session)) -> dict:
+    """
+    Encola la etiqueta de todo lo que ya decidiste antes de que existiera la
+    Fase 9. NO toca Gmail: solo deja las acciones pedidas.
+
+    Sin esto habría que volver a pulsar correo por correo algo ya decidido.
+    Sigue haciendo falta pulsar "Aplicar en Gmail" después: encolar y ejecutar
+    siguen siendo dos pasos.
+    """
+    return {"encoladas": encolar_etiquetas_atrasadas(session)}
 
 
 @app.post("/actions/execute", response_model=ExecutionOut, tags=["acciones"])

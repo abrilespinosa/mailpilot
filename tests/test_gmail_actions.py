@@ -94,27 +94,27 @@ def encolar(session, email, accion, propuesta=None):
 # ---------------------------------------------------------------------------
 
 
-def test_las_etiquetas_cuelgan_de_un_padre_propio(session, service):
+def test_las_etiquetas_se_llaman_como_las_ve_la_usuaria(session, service):
     """
-    `MailPilot/promociones`, no `promociones` a secas.
+    En Gmail se llaman "Trámites", con tilde y mayúscula, no `tramites`.
 
-    Así no pueden chocar con una etiqueta que la usuaria ya tenga con ese
-    nombre, y borrar la etiqueta padre se lleva las siete de golpe.
+    El enum interno sigue sin tildes: los identificadores del código y lo
+    que lee una persona son cosas distintas.
     """
     email, propuesta = preparar_decidida(session)
     accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
 
     gmail_actions.ejecutar(session, service, accion)
 
-    assert service.labels().create_calls[0]["body"]["name"] == "MailPilot/promociones"
-    assert accion.detail == {"etiqueta": "MailPilot/promociones"}
+    assert service.labels().create_calls[0]["body"]["name"] == "Promociones"
+    assert accion.detail == {"etiqueta": "Promociones"}
 
 
 def test_no_recrea_una_etiqueta_que_ya_existe(session):
     email, propuesta = preparar_decidida(session)
     accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
     service = FakeWritableService(
-        FakeWritableMessages(), FakeLabels({"MailPilot/promociones": "Label_7"})
+        FakeWritableMessages(), FakeLabels({"Promociones": "Label_7"})
     )
 
     gmail_actions.ejecutar(session, service, accion)
@@ -127,9 +127,13 @@ def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
     """
     LA REGLA QUE NO SE PUEDE ROMPER.
 
-    MailPilot puede quitar sus propias etiquetas (`MailPilot/*`) porque las
-    decisiones cambian y un correo no puede acabar con dos. Lo que no puede
+    MailPilot puede quitar sus propias etiquetas —las siete del enum— porque
+    las decisiones cambian y un correo no puede acabar con dos. Lo que no puede
     tocar es nada más: ni las etiquetas de la usuaria ni las de Gmail.
+
+    Al quitar el prefijo `MailPilot/`, el criterio de "cuáles son nuestras"
+    pasó a ser este conjunto cerrado. Si se ampliara sin pensar, MailPilot
+    podría empezar a quitar etiquetas ajenas.
 
     Quitar `INBOX` archivaría el correo. Es destructivo, nadie lo ha pedido, y
     se colaría con un simple descuido al construir la lista.
@@ -139,10 +143,10 @@ def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
     service = FakeWritableService(
         FakeWritableMessages(),
         FakeLabels({
-            "MailPilot/trabajo": "Label_mp1",     # nuestra, sobra -> se quita
-            "MailPilot/promociones": "Label_mp2", # nuestra, es la que toca
-            "Universidad": "Label_suya",          # SUYA
-            "INBOX": "INBOX",                     # de Gmail
+            "Trabajo": "Label_mp1",       # nuestra, sobra -> se quita
+            "Promociones": "Label_mp2",   # nuestra, es la que toca
+            "Universidad": "Label_suya",  # SUYA
+            "INBOX": "INBOX",             # de Gmail
             "STARRED": "STARRED",
         }),
     )
@@ -182,7 +186,7 @@ def test_etiqueta_lo_que_eligio_la_usuaria_no_lo_que_dijo_la_ia(session, service
 
     gmail_actions.ejecutar(session, service, accion)
 
-    assert accion.detail == {"etiqueta": "MailPilot/trabajo"}
+    assert accion.detail == {"etiqueta": "Trabajo"}
 
 
 def test_no_etiqueta_si_la_usuaria_no_ha_decidido(session, service):
@@ -242,7 +246,7 @@ def test_un_fallo_de_gmail_no_se_traga_en_silencio(session):
     accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
     service = FakeWritableService(
         FakeWritableMessages(fallar_con=RuntimeError("503 Service Unavailable")),
-        FakeLabels({"MailPilot/promociones": "Label_1"}),
+        FakeLabels({"Promociones": "Label_1"}),
     )
 
     gmail_actions.ejecutar(session, service, accion)
@@ -281,7 +285,7 @@ def test_cada_ejecucion_queda_en_el_audit_log(session, service):
     ).scalars().one()
     assert registro.detail == {
         "accion": "apply_label",
-        "etiqueta": "MailPilot/promociones",
+        "etiqueta": "Promociones",
     }
     assert registro.email_id == email.id
 
@@ -330,7 +334,7 @@ def test_de_la_decision_a_gmail(session, service):
     for accion in pendientes:
         gmail_actions.ejecutar(session, service, accion)
 
-    assert service.labels().create_calls[0]["body"]["name"] == "MailPilot/trabajo"
+    assert service.labels().create_calls[0]["body"]["name"] == "Trabajo"
     assert service.messages().trash_calls[0]["id"] == email.gmail_message_id
     assert all(a.status is GmailActionStatus.EXECUTED for a in pendientes)
 

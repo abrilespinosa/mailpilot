@@ -158,6 +158,9 @@ ESCRITURA_PERMITIDA = {
     # --- Fase 9: los dos únicos que pueden acabar cambiando algo en Gmail ---
     # Pedir la papelera. Solo escribe una fila `pending`: no toca Gmail.
     ("POST", "/emails/{email_id}/trash"),
+    # Encolar la etiqueta de decisiones tomadas antes de que existiera el eje
+    # de acciones. Tampoco toca Gmail: solo deja filas `pending`.
+    ("POST", "/actions/backfill"),
     # EL ÚNICO ENDPOINT DE TODO EL PROYECTO QUE ESCRIBE EN GMAIL.
     # Ejecuta acciones que ya estaban pedidas; no puede inventarse trabajo.
     ("POST", "/actions/execute"),

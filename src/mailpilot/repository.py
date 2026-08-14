@@ -416,6 +416,74 @@ def encolar_accion(
     return fila
 
 
+def encolar_etiquetas_atrasadas(session: Session, limit: int = 1000) -> int:
+    """
+    Encola la etiqueta de las decisiones que se tomaron antes de la Fase 9.
+
+    Cuando la usuaria decidió esas propuestas todavía no existía el eje de
+    acciones, así que nadie encoló nada. Sin esto habría que volver a pulsar
+    correo por correo algo que ya estaba decidido, que es exactamente lo que
+    este proyecto intenta evitar.
+
+    No reencola lo que ya tiene una acción de etiqueta (pendiente, ejecutada o
+    fallida): ejecutar dos veces sería inofensivo, pero duplicar filas
+    ensuciaría el registro de qué se hizo y cuándo.
+    """
+    con_accion = select(GmailAction.email_id).where(
+        GmailAction.action == GmailActionType.APPLY_LABEL
+    )
+
+    propuestas = (
+        session.execute(
+            select(ActionProposal)
+            .where(
+                ActionProposal.final_category.is_not(None),
+                ActionProposal.email_id.not_in(con_accion),
+            )
+            .order_by(ActionProposal.id)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+    for propuesta in propuestas:
+        session.add(
+            GmailAction(
+                email_id=propuesta.email_id,
+                action=GmailActionType.APPLY_LABEL,
+                action_proposal_id=propuesta.id,
+                status=GmailActionStatus.PENDING,
+            )
+        )
+
+    if propuestas:
+        session.add(
+            AuditLog(
+                event_type="labels_backfilled",
+                detail={"count": len(propuestas)},
+            )
+        )
+    session.commit()
+
+    return len(propuestas)
+
+
+def decisiones_sin_aplicar(session: Session) -> int:
+    """Cuántas decisiones ya tomadas no tienen todavía su etiqueta encolada."""
+    con_accion = select(GmailAction.email_id).where(
+        GmailAction.action == GmailActionType.APPLY_LABEL
+    )
+    return session.execute(
+        select(func.count())
+        .select_from(ActionProposal)
+        .where(
+            ActionProposal.final_category.is_not(None),
+            ActionProposal.email_id.not_in(con_accion),
+        )
+    ).scalar_one()
+
+
 def acciones_pendientes(session: Session, limit: int = 50) -> list[GmailAction]:
     """Acciones pedidas y todavía sin ejecutar, en el orden en que se pidieron."""
     return list(

@@ -210,6 +210,17 @@
 
   {# La cola de acciones. Es lo que separa "he decidido" de "Gmail ha
      cambiado": mientras estén aquí, todavía no ha pasado nada en tu cuenta. #}
+  {# Decisiones tomadas antes de que existiera el eje de acciones. Sin este
+     botón habría que volver a pulsar correo por correo algo ya decidido. #}
+  {% if sin_aplicar and not ciego %}
+    <div class="barra-acciones">
+      <span>
+        <b>{{ sin_aplicar }}</b> decisiones tuyas todavía no tienen etiqueta en Gmail.
+      </span>
+      <button class="ejecutar" id="recuperar">Preparar las {{ sin_aplicar }}</button>
+    </div>
+  {% endif %}
+
   {% if acciones.pendientes and not ciego %}
     <div class="barra-acciones">
       <span>
@@ -349,6 +360,7 @@
 // reglas seguirían intactas en el servidor.
 document.addEventListener("click", (evento) => {
   if (evento.target.id === "ejecutar") return aplicarEnGmail(evento.target);
+  if (evento.target.id === "recuperar") return recuperarAtrasadas(evento.target);
 
   const boton = evento.target.closest(".chip, .descartar, .papelera");
   if (!boton) return;
@@ -387,20 +399,40 @@ async function pedirPapelera(tarjeta, boton) {
   }
 }
 
-async function aplicarEnGmail(boton) {
+async function recuperarAtrasadas(boton) {
   boton.disabled = true;
-  boton.textContent = "Aplicando…";
-
+  boton.textContent = "Preparando…";
   try {
-    const respuesta = await fetch("/actions/execute", { method: "POST" });
-    const r = await respuesta.json();
-    boton.textContent = `${r.ejecutadas} aplicadas`
-      + (r.fallidas ? `, ${r.fallidas} fallaron` : "");
-    // Recargar: cambian los contadores y el estado de cada acción.
-    setTimeout(() => location.reload(), 1200);
+    const r = await (await fetch("/actions/backfill", { method: "POST" })).json();
+    boton.textContent = `${r.encoladas} preparadas`;
+    setTimeout(() => location.reload(), 900);
   } catch (error) {
     boton.disabled = false;
     boton.textContent = "No se pudo. Reintentar";
+  }
+}
+
+async function aplicarEnGmail(boton) {
+  boton.disabled = true;
+  let hechas = 0, fallos = 0;
+
+  // Se ejecuta por tandas EN BUCLE, no de una vez. Cada acción es una llamada
+  // de red a Gmail: mandar doscientas en una sola petición la haría tardar
+  // minutos y morir por timeout. Como cada acción se guarda al terminar,
+  // trocear deja el estado consistente aunque se corte a la mitad.
+  try {
+    while (true) {
+      const r = await (await fetch("/actions/execute", { method: "POST" })).json();
+      hechas += r.ejecutadas;
+      fallos += r.fallidas;
+      boton.textContent = `Aplicando… ${hechas}`;
+      if (r.pendientes === 0 || (r.ejecutadas === 0 && r.fallidas === 0)) break;
+    }
+    boton.textContent = `${hechas} aplicadas` + (fallos ? `, ${fallos} fallaron` : "");
+    setTimeout(() => location.reload(), 1200);
+  } catch (error) {
+    boton.disabled = false;
+    boton.textContent = `Se cortó en ${hechas}. Reintentar`;
   }
 }
 

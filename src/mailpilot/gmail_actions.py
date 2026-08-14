@@ -40,18 +40,34 @@ from mailpilot.models import (
     GmailActionType,
 )
 
-# Las etiquetas de MailPilot cuelgan de un padre común.
+# Cómo se llaman las etiquetas EN GMAIL.
 #
-# Gmail trata la barra como anidamiento, así que las siete aparecen plegadas
-# bajo "MailPilot" en la barra lateral. Tres motivos, y ninguno es estético:
-# no pueden chocar con una etiqueta tuya que se llame igual, se ve de un
-# vistazo qué puso MailPilot y qué pusiste tú, y borrar la etiqueta padre se
-# lleva las siete de golpe si algún día quieres deshacerlo todo.
-PREFIJO_ETIQUETA = "MailPilot"
+# Con tildes y mayúscula, porque las vas a ver a diario en la barra lateral.
+# En la base de datos el enum sigue siendo `tramites` sin tilde: los
+# identificadores internos y lo que se le enseña a una persona son cosas
+# distintas, y mezclarlas obliga a poner tildes en el código.
+#
+# Hubo una versión anterior con prefijo (`MailPilot/tramites`) que se descartó
+# a petición de la usuaria. El prefijo servía para saber qué etiquetas eran
+# nuestras; ahora ese papel lo hace este diccionario, que es un conjunto igual
+# de cerrado porque sale del enum `Category`.
+NOMBRES_EN_GMAIL = {
+    Category.PERSONAL: "Personal",
+    Category.TRABAJO: "Trabajo",
+    Category.COMPRAS: "Compras",
+    Category.TRAMITES: "Trámites",
+    Category.AVISOS: "Avisos",
+    Category.PROMOCIONES: "Promociones",
+    Category.OTROS: "Otros",
+}
+
+# El conjunto de etiquetas que MailPilot considera SUYAS. Es lo único que
+# `removeLabelIds` puede llegar a contener: ver `aplicar_etiqueta`.
+NUESTRAS_ETIQUETAS = frozenset(NOMBRES_EN_GMAIL.values())
 
 
 def nombre_de_etiqueta(categoria: Category) -> str:
-    return f"{PREFIJO_ETIQUETA}/{categoria.value}"
+    return NOMBRES_EN_GMAIL[categoria]
 
 
 # ---------------------------------------------------------------------------
@@ -165,12 +181,13 @@ def ejecutar(session: Session, service, accion: GmailAction, cache=None) -> Gmai
             if cache is None:
                 cache = etiquetas_existentes(service)
             label_id = asegurar_etiqueta(service, nombre, cache)
-            # Solo las nuestras: el filtro por prefijo es lo que garantiza que
-            # `removeLabelIds` jamás toque una etiqueta de la usuaria.
+            # Solo las nuestras. El filtro contra un conjunto CERRADO —los
+            # siete nombres del enum— es lo que garantiza que `removeLabelIds`
+            # jamás toque una etiqueta de la usuaria, ni INBOX, ni STARRED.
             nuestras = [
                 id_
                 for nombre_etiqueta, id_ in cache.items()
-                if nombre_etiqueta.startswith(f"{PREFIJO_ETIQUETA}/")
+                if nombre_etiqueta in NUESTRAS_ETIQUETAS
             ]
             aplicar_etiqueta(service, email.gmail_message_id, label_id, nuestras)
             detalle = {"etiqueta": nombre}

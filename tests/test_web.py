@@ -521,3 +521,43 @@ def test_la_barra_avisa_de_que_gmail_no_ha_cambiado(client, session):
 
     assert "acciones esperando" in html
     assert "no</b> ha cambiado nada en Gmail" in html
+
+
+def test_recupera_las_decisiones_anteriores_a_la_fase_9(client, session):
+    """
+    Las decisiones tomadas antes de que existiera el eje de acciones no
+    encolaron nada. Sin esto habría que volver a pulsar correo por correo algo
+    que ya estaba decidido.
+    """
+    propuesta = propuesta_lista(session)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+    # Simula el estado de antes: decidida pero sin acción encolada.
+    for accion in session.execute(select(GmailAction)).scalars().all():
+        session.delete(accion)
+    session.commit()
+
+    assert "decisiones tuyas todavía no tienen etiqueta" in client.get("/").text
+
+    respuesta = client.post("/actions/backfill")
+
+    assert respuesta.json()["encoladas"] == 1
+    accion = session.execute(select(GmailAction)).scalar_one()
+    assert accion.action is GmailActionType.APPLY_LABEL
+    assert accion.status is GmailActionStatus.PENDING
+    assert accion.action_proposal_id == propuesta.id
+
+
+def test_recuperar_dos_veces_no_duplica(client, session):
+    propuesta = propuesta_lista(session)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+
+    assert client.post("/actions/backfill").json()["encoladas"] == 0
+    assert len(session.execute(select(GmailAction)).scalars().all()) == 1
+
+
+def test_lo_rechazado_no_se_recupera(client, session):
+    """Rechazar sigue significando "no apliques nada", también hacia atrás."""
+    propuesta = propuesta_lista(session)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.REJECTED)
+
+    assert client.post("/actions/backfill").json()["encoladas"] == 0

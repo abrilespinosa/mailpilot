@@ -105,3 +105,9 @@ class ExecutionOut(BaseModel):
     ejecutadas: int
     fallidas: int
     pendientes: int
+
+
+class BackfillOut(BaseModel):
+    """Cuántas etiquetas atrasadas se han dejado pedidas. Gmail sigue intacto."""
+
+    encoladas: int

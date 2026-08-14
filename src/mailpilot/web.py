@@ -29,6 +29,7 @@ from mailpilot.db import get_session
 from mailpilot.models import ActionProposal, Category, ProposalStatus
 from mailpilot.repository import (
     contar_acciones,
+    decisiones_sin_aplicar,
     estadisticas,
     propuestas_decididas,
     propuestas_pendientes,
@@ -117,6 +118,7 @@ def dashboard(
             "categorias": list(Category),
             "stats": estadisticas(session),
             "acciones": contar_acciones(session),
+            "sin_aplicar": decisiones_sin_aplicar(session),
             "ciego": ciego,
             "vista": "pendientes",
             "logo": buscar_asset("logo"),
@@ -163,6 +165,7 @@ def decididas(
             "categorias": list(Category),
             "stats": estadisticas(session),
             "acciones": contar_acciones(session),
+            "sin_aplicar": decisiones_sin_aplicar(session),
             "ciego": False,
             "vista": "decididas",
             "logo": buscar_asset("logo"),
