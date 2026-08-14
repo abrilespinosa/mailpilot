@@ -248,7 +248,27 @@ def propuestas_pendientes(session: Session, limit: int = 50, offset: int = 0):
     Los correos que ya están en la papelera quedan fuera: preguntar por algo
     que la usuaria ya tiró es hacerle perder el tiempo con una decisión que ya
     tomó, aunque la tomara desde Gmail y no desde aquí.
+
+    Y los que ha PEDIDO tirar, también. Las dos condiciones hacen falta porque
+    miran cosas distintas (ADR 002): `en_papelera` es el estado actual, que no
+    cambia hasta pulsar «Aplicar en Gmail», mientras que la fila pendiente en
+    `gmail_actions` es la intención, que existe desde el clic.
+
+    Filtrar solo por el estado dejaba un hueco entre las dos: el correo estaba
+    pedido para la papelera y la lista seguía preguntando por él. Como la
+    propuesta tampoco se decidía, la página nunca pasaba a los siguientes 20 y
+    al recargar salían los mismos.
     """
+    pedido_tirar = (
+        select(GmailAction.id)
+        .where(
+            GmailAction.email_id == Email.id,
+            GmailAction.action == GmailActionType.MOVE_TO_TRASH,
+            GmailAction.status == GmailActionStatus.PENDING,
+        )
+        .exists()
+    )
+
     return (
         session.execute(
             select(ActionProposal)
@@ -256,6 +276,7 @@ def propuestas_pendientes(session: Session, limit: int = 50, offset: int = 0):
             .where(
                 ActionProposal.status == ProposalStatus.PENDING,
                 Email.en_papelera.is_(False),
+                ~pedido_tirar,
             )
             .order_by(Email.received_at.desc())
             .limit(limit)

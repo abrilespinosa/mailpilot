@@ -603,6 +603,35 @@ def test_lo_tirado_desaparece_de_pendientes(client, session):
     assert "Ya lo tiré" not in client.get("/").text
 
 
+def test_pedir_la_papelera_ya_lo_saca_de_pendientes(client, session):
+    """
+    EL BUG DEL BUCLE DE LOS 20.
+
+    Pulsar la papelera sin categorizar dejaba el correo en pendientes: la
+    propuesta seguía `pending` y `en_papelera` no se pone a True hasta pulsar
+    «Aplicar en Gmail». Con una pantalla entera de correos tirados así, la
+    lista no se vaciaba nunca y al recargar salían los mismos 20.
+
+    Son dos cosas distintas y hacen falta las dos (ADR 002): `en_papelera` es
+    el estado y la fila pendiente en `gmail_actions` es la intención. Preguntar
+    por algo que ya pediste tirar es igual de inútil que preguntar por lo que
+    ya está tirado.
+    """
+    propuesta = propuesta_lista(session, subject="Lo tiro sin mirarlo")
+    assert "Lo tiro sin mirarlo" in client.get("/").text
+
+    # El mismo camino que usa el botón del dashboard.
+    assert client.post(f"/emails/{propuesta.email_id}/trash").status_code == 200
+
+    assert "Lo tiro sin mirarlo" not in client.get("/").text
+
+    # Pero NO se ha inventado una categoría: tirar no responde "qué es esto",
+    # y contar la propuesta del modelo como acierto inflaría la medición.
+    session.refresh(propuesta)
+    assert propuesta.status is ProposalStatus.PENDING
+    assert propuesta.final_category is None
+
+
 def test_lo_tirado_no_sale_en_clasificados(client, session):
     """Cada correo en una sola pestaña: la papelera manda sobre clasificado."""
     propuesta = propuesta_lista(session, subject="Clasificado y tirado")

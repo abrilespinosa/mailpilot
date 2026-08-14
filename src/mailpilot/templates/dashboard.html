@@ -88,6 +88,11 @@
       transition: opacity .25s, transform .25s;
     }
     .propuesta.resuelta { opacity: 0; transform: translateY(-6px); }
+    /* Pedida para la papelera pero SIN categorizar todavía. No se quita: los
+       chips siguen ahí porque "qué es esto" sigue sin respuesta (ADR 002).
+       Atenuada para que se vea de un vistazo lo que queda por mirar. */
+    .propuesta.tirada { opacity: .45; }
+    .propuesta.tirada:hover { opacity: 1; }
     .meta { display: flex; justify-content: space-between; gap: 1rem; font-size: .82rem; color: var(--suave); }
     .remitente { font-weight: 600; color: var(--texto); overflow-wrap: anywhere; }
     .asunto { font-weight: 600; margin: .45rem 0 .3rem; overflow-wrap: anywhere; }
@@ -453,8 +458,25 @@ async function pedirPapelera(tarjeta, boton) {
 
     boton.classList.add("pedida");
     boton.textContent = "🗑 pedida — se aplicará al pulsar «Aplicar en Gmail»";
+
+    // La tarjeta NO se quita: "¿qué es esto?" sigue sin responder y los chips
+    // tienen que seguir a mano. Pero deja de contar como pendiente de mirar,
+    // o una pantalla entera de correos tirados no avanzaría nunca.
+    tarjeta.classList.add("tirada");
+    tarjeta.dataset.tirada = "1";
+    avanzarSiNoQuedaNada();
   } catch (error) {
     avisar(tarjeta, "No hay conexión con el servidor.");
+  }
+}
+
+// Recarga cuando no queda nada por mirar en esta pantalla, para traer los
+// siguientes. Una tarjeta cuenta si no se ha decidido Y no se ha pedido tirar:
+// mirar solo si la lista está vacía dejaba colgada la pantalla en la que todo
+// se había mandado a la papelera sin categorizar.
+function avanzarSiNoQuedaNada() {
+  if (!document.querySelector(".propuesta:not([data-tirada])")) {
+    setTimeout(() => location.reload(), 600);
   }
 }
 
@@ -602,7 +624,7 @@ function quitar(tarjeta) {
   tarjeta.classList.add("resuelta");
   setTimeout(() => {
     tarjeta.remove();
-    if (!document.querySelector(".propuesta")) location.reload();
+    avanzarSiNoQuedaNada();
   }, 250);
 }
 
