@@ -198,7 +198,7 @@ python scripts/ingest.py --limit 80    # Gmail -> PostgreSQL
 python scripts/classify.py             # clasificar con Ollama
 python scripts/propose.py              # generar propuestas
 
-uvicorn mailpilot.api:app --reload --app-dir src
+uvicorn mailpilot.api:app --reload   # ya no hace falta --app-dir (ADR 005)
 ```
 
 - `http://localhost:8000/` — **dashboard**: las propuestas pendientes, con siete
