@@ -383,6 +383,9 @@ class GmailAction(Base):
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     email: Mapped["Email"] = relationship(back_populates="gmail_actions")
+    # De qué decisión sale la etiqueta que hay que poner. Nullable porque
+    # mover a papelera no necesita ninguna propuesta detrás.
+    proposal: Mapped["ActionProposal | None"] = relationship()
 
     def __repr__(self) -> str:
         return f"<GmailAction {self.action.value} {self.status.value}>"

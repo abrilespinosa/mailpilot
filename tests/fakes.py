@@ -89,3 +89,77 @@ def make_raw_message(
         "labelIds": labels if labels is not None else ["INBOX"],
         "payload": {"headers": headers},
     }
+
+
+# ---------------------------------------------------------------------------
+# Dobles para la ESCRITURA en Gmail (Fase 9)
+#
+# Estos importan más que los de lectura: aquí un fallo del doble ocultaría que
+# el código hace algo destructivo. Por eso guardan todo lo que reciben, y por
+# eso NO tienen método send() ni delete(): si algún día el código intentara
+# llamarlos, el test reventaría con AttributeError en vez de pasar en silencio.
+# ---------------------------------------------------------------------------
+
+
+class FakeWritableMessages(FakeMessagesResource):
+    """messages() con modify() y trash(), que son las dos únicas escrituras."""
+
+    def __init__(self, fallar_con: Exception | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.modify_calls: list[dict] = []
+        self.trash_calls: list[dict] = []
+        self.fallar_con = fallar_con
+
+    def modify(self, **kwargs) -> _FakeRequest:
+        if self.fallar_con:
+            raise self.fallar_con
+        self.modify_calls.append(kwargs)
+        return _FakeRequest({"id": kwargs["id"]})
+
+    def trash(self, **kwargs) -> _FakeRequest:
+        if self.fallar_con:
+            raise self.fallar_con
+        self.trash_calls.append(kwargs)
+        return _FakeRequest({"id": kwargs["id"], "labelIds": ["TRASH"]})
+
+
+class FakeLabels:
+    """
+    Imita service.users().labels().
+
+    `existentes` es {nombre: id}. create() añade a ese diccionario, así que el
+    doble se comporta como Gmail: crear dos veces la misma etiqueta se nota.
+    """
+
+    def __init__(self, existentes: dict[str, str] | None = None):
+        self.existentes = dict(existentes or {})
+        self.create_calls: list[dict] = []
+
+    def list(self, **kwargs) -> _FakeRequest:
+        return _FakeRequest(
+            {"labels": [{"name": n, "id": i} for n, i in self.existentes.items()]}
+        )
+
+    def create(self, **kwargs) -> _FakeRequest:
+        self.create_calls.append(kwargs)
+        nombre = kwargs["body"]["name"]
+        nuevo = f"Label_{len(self.existentes) + 1}"
+        self.existentes[nombre] = nuevo
+        return _FakeRequest({"id": nuevo, "name": nombre})
+
+
+class FakeWritableService:
+    """Como FakeService, pero con labels() y escrituras."""
+
+    def __init__(self, messages: FakeWritableMessages, labels: FakeLabels | None = None):
+        self._messages = messages
+        self._labels = labels or FakeLabels()
+
+    def users(self):
+        return self
+
+    def messages(self):
+        return self._messages
+
+    def labels(self):
+        return self._labels

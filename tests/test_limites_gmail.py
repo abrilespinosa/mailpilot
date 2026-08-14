@@ -117,3 +117,42 @@ def test_ningun_modulo_llama_a_enviar_ni_a_borrar():
                     encontrados.append(f"{modulo.name}:{linea_n} {que_es}: {linea.strip()}")
 
     assert not encontrados, "Llamadas prohibidas a Gmail:\n" + "\n".join(encontrados)
+
+
+# Llamadas que SÍ existen, pero solo pueden vivir en un módulo.
+ESCRITURAS = {
+    r"\.modify\s*\(": "modificar etiquetas de un mensaje",
+    r"\.trash\s*\(": "mover a papelera",
+    r"labels\(\)\s*\.\s*create": "crear una etiqueta",
+}
+
+MODULO_AUTORIZADO = "gmail_actions.py"
+
+
+def test_solo_un_modulo_escribe_en_gmail():
+    """
+    La propiedad que hace revisable el proyecto entero.
+
+    Con las escrituras concentradas en un archivo, auditar qué puede hacerle
+    MailPilot a tu cuenta es leer 150 líneas. Repartidas por seis módulos,
+    nadie las revisa nunca y cualquiera añade una capacidad sin querer.
+
+    Es la misma idea que hace que `auth.py` sea el único que toca
+    `credentials/`: una frontera estrecha y vigilada vale más que muchas
+    reglas repartidas.
+    """
+    intrusos = []
+
+    for modulo in modulos():
+        if modulo.name == MODULO_AUTORIZADO:
+            continue
+        for linea_n, linea in enumerate(modulo.read_text().splitlines(), 1):
+            if linea.lstrip().startswith("#"):
+                continue
+            for patron, que_es in ESCRITURAS.items():
+                if re.search(patron, linea):
+                    intrusos.append(f"{modulo.name}:{linea_n} {que_es}")
+
+    assert not intrusos, (
+        f"Solo {MODULO_AUTORIZADO} puede escribir en Gmail:\n" + "\n".join(intrusos)
+    )
