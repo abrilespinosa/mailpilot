@@ -177,7 +177,7 @@ OAuth de la Gmail API.
 
 ```bash
 python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev]"      # editable: sin copiar, sin reinstalar al editar
 
 cp .env.example .env          # y rellenar
 

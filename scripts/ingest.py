@@ -6,10 +6,6 @@ Eso es la idempotencia funcionando.
 """
 
 import argparse
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mailpilot.db import SessionLocal
 from mailpilot.gmail import fetch_messages, get_service, list_message_ids

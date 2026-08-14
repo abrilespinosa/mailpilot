@@ -6,11 +6,6 @@ labels). Todavía no toca base de datos: solo imprime por pantalla para
 comprobar que el parsing es correcto.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
 from mailpilot.gmail import fetch_messages, get_service, list_message_ids
 
 LIMIT = 10

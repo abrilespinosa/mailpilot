@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mailpilot"
+version = "0.9.0"
+description = "Capa de gestión inteligente sobre Gmail: la IA propone, la persona decide"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [{ name = "Abril Espinosa" }]
+
+# LA ÚNICA lista de dependencias del proyecto. Antes vivían en
+# requirements.txt, que se ha borrado: dos listas que hay que acordarse de
+# sincronizar acaban separándose, y el fallo no aparece donde se cometió sino
+# días después en otra máquina.
+#
+# Versiones exactas (==) a propósito. Esto es una aplicación, no una librería:
+# nadie va a instalarla junto a otras cosas, así que reproducir el entorno
+# exacto vale más que ser flexible.
+dependencies = [
+    "google-auth-oauthlib==1.2.1",
+    "google-api-python-client==2.149.0",
+    "SQLAlchemy==2.0.52",
+    "alembic==1.19.1",
+    "psycopg[binary]==3.3.4",
+    "python-dotenv==1.2.2",
+    # [standard] trae uvicorn (servidor), httpx (tests) y Jinja2 (plantillas
+    # del dashboard).
+    "fastapi[standard]==0.141.1",
+]
+
+[project.optional-dependencies]
+# Lo que hace falta para DESARROLLAR, no para usar MailPilot. Aparte porque
+# quien solo quiera ejecutarlo no necesita el framework de tests.
+#   pip install -e ".[dev]"
+dev = ["pytest==9.1.1"]
+
+[project.urls]
+Repository = "https://github.com/abrilespinosa/mailpilot"
+
+# El código vive en src/, no en la raíz. Es lo que impide que `import mailpilot`
+# funcione por accidente al estar parada en la carpeta del proyecto: si los
+# tests pasan, es porque el paquete está de verdad instalado.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Las plantillas Jinja2 y los logos no son .py, así que hay que decir que
+# también son parte del paquete o una instalación limpia se queda sin dashboard.
+[tool.setuptools.package-data]
+mailpilot = ["templates/*.html", "static/*", "static/marca/*"]

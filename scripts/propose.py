@@ -6,10 +6,6 @@ usuaria opine, desde el dashboard o desde la API.
 """
 
 import argparse
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mailpilot.db import SessionLocal
 from mailpilot.repository import generar_propuestas, propuestas_pendientes

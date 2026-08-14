@@ -7,11 +7,6 @@ Ejecuta esto una vez para verificar que:
 3. Puedes listar tus últimos correos (solo lectura).
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
 from googleapiclient.discovery import build
 
 from mailpilot.auth import get_credentials
