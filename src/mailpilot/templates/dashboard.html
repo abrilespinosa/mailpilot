@@ -447,7 +447,7 @@ document.addEventListener("click", (evento) => {
   if (evento.target.id === "ejecutar") return aplicarEnGmail(evento.target);
   if (evento.target.id === "recuperar") return recuperarAtrasadas(evento.target);
   if (evento.target.id === "sincronizar") return sincronizar(evento.target);
-  if (evento.target.id === "siguientes") return location.reload();
+  if (evento.target.id === "siguientes") return siguientePagina();
 
   const rescate = evento.target.closest("[data-recuperar]");
   if (rescate) return recuperar(rescate);
@@ -493,6 +493,23 @@ async function pedirPapelera(tarjeta, boton) {
   } catch (error) {
     avisar(tarjeta, "No hay conexión con el servidor.");
   }
+}
+
+// Pasa al siguiente lote y DEJA LA PÁGINA ARRIBA.
+//
+// Recargar a secas no bastaba: el navegador restaura la posición del scroll al
+// recargar, así que el lote nuevo aparecía con la vista clavada al final y
+// había que subir a mano cada vez. Y no vale con un scrollTo(0,0) antes de
+// recargar, porque la restauración ocurre DESPUÉS de cargar y lo pisa.
+//
+// `scrollRestoration = "manual"` le dice al navegador que no restaure nada en
+// esta entrada del historial. Aquí siempre es lo correcto: tras recargar, la
+// lista es otra —los ya decididos salen de la consulta de pendientes—, así que
+// conservar el scroll de la lista anterior no significa nada.
+function siguientePagina() {
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  window.scrollTo(0, 0);
+  location.reload();
 }
 
 // Enseña el botón de "siguientes" cuando ya no queda nada sin resolver.
