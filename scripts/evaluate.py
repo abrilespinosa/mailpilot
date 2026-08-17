@@ -121,10 +121,26 @@ def informe(resultados: list[dict], fallos_validacion: int = 0) -> float:
     return precision
 
 
+def splits_disponibles() -> list[str]:
+    """Los conjuntos que existen de verdad en labels.json, no una lista escrita a mano."""
+    return sorted({e["split"] for e in json.loads(LABELS.read_text()) if e.get("split")})
+
+
 def cargar_etiquetas(split: str | None = None) -> list[dict]:
     etiquetas = json.loads(LABELS.read_text())
     if split:
         etiquetas = [e for e in etiquetas if e.get("split") == split]
+        # Sin esto, un conjunto inexistente devolvía una lista vacía y el script
+        # seguía tan tranquilo hasta imprimir un acierto sobre cero correos. Un
+        # conjunto que no existe es un error de quien llama, no un resultado.
+        if not etiquetas:
+            disponibles = ", ".join(splits_disponibles()) or "ninguno"
+            raise SystemExit(
+                f"El conjunto '{split}' no existe en {LABELS.name}.\n"
+                f"Disponibles: {disponibles}.\n"
+                "Ojo: `test3` y `test6` NO están aquí. Se midieron por el dashboard, "
+                "y su fuente de verdad es la tabla action_proposals (ver CLAUDE.md)."
+            )
     return etiquetas
 
 
@@ -244,10 +260,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", help="nombre de esta ejecución")
     parser.add_argument("--limit", type=int, help="usar solo los N primeros")
+    # Sin `choices=`: la lista vivía escrita a mano y se quedó atrás en cuanto
+    # aparecieron conjuntos nuevos. Ahora los conjuntos válidos son los que haya
+    # en labels.json, y `cargar_etiquetas` avisa con la lista real si no está.
+    # Tampoco puede ir en `choices` porque labels.json está gitignored: quien
+    # clone el repo no lo tiene, y argparse lo leería solo con pedir --help.
     parser.add_argument(
         "--split",
-        choices=["dev", "test", "test2"],
-        help="dev para afinar; test quemado (v3/v4 se escribieron viéndolo); test2 limpio",
+        help="dev para afinar; test y test2 quemados (se escribieron prompts viéndolos)",
     )
     parser.add_argument("--model", help="modelo de Ollama (por defecto, el de .env)")
     parser.add_argument(

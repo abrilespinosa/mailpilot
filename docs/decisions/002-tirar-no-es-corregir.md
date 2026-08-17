@@ -1,7 +1,8 @@
 # ADR 002 — Tirar un correo y clasificarlo son dos decisiones distintas
 
 Fecha: 2026-08-14
-Estado: aceptado, pendiente de implementar en la Fase 9
+Estado: aceptado e implementado en la Fase 9. La tabla `gmail_actions` existe, y
+`GmailActionType` pasó de dos valores a tres al añadir `restore_from_trash`.
 
 ## Contexto
 

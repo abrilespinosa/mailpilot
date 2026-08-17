@@ -158,7 +158,9 @@ def save_classification(
 # Propuestas
 #
 # Nada de aquí toca Gmail. Una propuesta es solo una fila en la base de datos
-# esperando a que la usuaria decida. La ejecución real llega en la Fase 9.
+# esperando a que la usuaria decida. Decidir tampoco escribe en Gmail: encola una
+# fila en `gmail_actions`, y quien escribe de verdad es `gmail_actions.ejecutar`,
+# a través del único endpoint que lo hace, `POST /actions/execute`.
 # ---------------------------------------------------------------------------
 
 
