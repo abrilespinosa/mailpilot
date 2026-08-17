@@ -58,13 +58,21 @@ from mailpilot.models import (
 # de cerrado porque sale del enum `Category`.
 NOMBRES_EN_GMAIL = {
     Category.PERSONAL: "Personal",
-    Category.TRABAJO: "Trabajo",
-    Category.COMPRAS: "Compras",
+    Category.SEGURIDAD: "Seguridad",
     Category.TRAMITES: "Trámites",
+    Category.COMPRAS: "Compras",
+    Category.EMPLEO: "Empleo",
+    Category.BOLETINES: "Boletines",
+    Category.SOCIAL: "Social",
     Category.AVISOS: "Avisos",
     Category.PROMOCIONES: "Promociones",
     Category.OTROS: "Otros",
 }
+
+# OJO: la etiqueta `Trabajo` que ya existe en la cuenta de Gmail se queda
+# huérfana al renombrar la categoría a `empleo` (ADR 006). No se borra desde
+# aquí a propósito: MailPilot no borra etiquetas de nadie, ni las suyas. Hay
+# que quitarla a mano desde Gmail cuando ya no queden correos con ella.
 
 # El conjunto de etiquetas que MailPilot considera SUYAS. Es lo único que
 # `removeLabelIds` puede llegar a contener: ver `aplicar_etiqueta`.

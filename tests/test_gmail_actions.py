@@ -147,7 +147,7 @@ def test_nunca_quita_una_etiqueta_que_no_sea_suya(session):
     service = FakeWritableService(
         FakeWritableMessages(),
         FakeLabels({
-            "Trabajo": "Label_mp1",       # nuestra, sobra -> se quita
+            "Empleo": "Label_mp1",       # nuestra, sobra -> se quita
             "Promociones": "Label_mp2",   # nuestra, es la que toca
             "Universidad": "Label_suya",  # SUYA
             "INBOX": "INBOX",             # archivar: se quita (ADR 004)
@@ -174,8 +174,8 @@ def test_lo_quitable_es_un_conjunto_cerrado():
     ampliar el enum de acciones.
     """
     assert gmail_actions.QUITABLES == {
-        "Personal", "Trabajo", "Compras", "Trámites",
-        "Avisos", "Promociones", "Otros",
+        "Personal", "Seguridad", "Trámites", "Compras", "Empleo",
+        "Boletines", "Social", "Avisos", "Promociones", "Otros",
         "INBOX",
     }
     for jamas in ("UNREAD", "STARRED", "IMPORTANT", "SPAM", "TRASH", "SENT"):
@@ -212,13 +212,13 @@ def test_etiqueta_lo_que_eligio_la_usuaria_no_lo_que_dijo_la_ia(session, service
     proyecto promete no hacer.
     """
     email, propuesta = preparar_decidida(
-        session, categoria=Category.PROMOCIONES, elegida=Category.TRABAJO
+        session, categoria=Category.PROMOCIONES, elegida=Category.EMPLEO
     )
     accion = encolar(session, email, GmailActionType.APPLY_LABEL, propuesta)
 
     gmail_actions.ejecutar(session, service, accion)
 
-    assert accion.detail["etiqueta"] == "Trabajo"
+    assert accion.detail["etiqueta"] == "Empleo"
 
 
 def test_no_etiqueta_si_la_usuaria_no_ha_decidido(session, service):
@@ -354,7 +354,7 @@ def test_de_la_decision_a_gmail(session, service):
     papelera. Y en la base de datos, todo el rastro de por qué.
     """
     email, propuesta = preparar_decidida(
-        session, categoria=Category.PROMOCIONES, elegida=Category.TRABAJO
+        session, categoria=Category.PROMOCIONES, elegida=Category.EMPLEO
     )
     from mailpilot.repository import encolar_accion
 
@@ -369,7 +369,7 @@ def test_de_la_decision_a_gmail(session, service):
     for accion in pendientes:
         gmail_actions.ejecutar(session, service, accion)
 
-    assert service.labels().create_calls[0]["body"]["name"] == "Trabajo"
+    assert service.labels().create_calls[0]["body"]["name"] == "Empleo"
     assert service.messages().trash_calls[0]["id"] == email.gmail_message_id
     assert all(a.status is GmailActionStatus.EXECUTED for a in pendientes)
 
@@ -463,7 +463,7 @@ def test_recuperar_devuelve_tambien_su_categoria(session, service):
     from mailpilot.repository import acciones_pendientes, pedir_recuperacion
 
     email, propuesta = preparar_decidida(
-        session, categoria=Category.PROMOCIONES, elegida=Category.TRABAJO
+        session, categoria=Category.PROMOCIONES, elegida=Category.EMPLEO
     )
     # Se tiró antes de aplicar nada: la etiqueta pendiente se descarta.
     for a in session.execute(select(GmailAction)).scalars().all():
@@ -483,7 +483,7 @@ def test_recuperar_devuelve_tambien_su_categoria(session, service):
         gmail_actions.ejecutar(session, service, accion)
 
     assert email.en_papelera is False
-    assert service.labels().create_calls[0]["body"]["name"] == "Trabajo"
+    assert service.labels().create_calls[0]["body"]["name"] == "Empleo"
 
 
 def test_recuperar_deja_el_correo_en_recibidos_pese_a_que_etiquetar_archiva(

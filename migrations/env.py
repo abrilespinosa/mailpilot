@@ -82,6 +82,25 @@ def run_migrations_online() -> None:
             # Sin esto, Alembic detecta columnas nuevas y borradas pero NO
             # los cambios de tipo de una columna existente.
             compare_type=True,
+            # UNA TRANSACCIÓN POR MIGRACIÓN, no una para todas.
+            #
+            # Por defecto Alembic mete todas las migraciones pendientes en una
+            # sola transacción. Eso choca de frente con PostgreSQL, donde un
+            # valor de enum recién creado NO se puede usar hasta que su
+            # transacción confirme: el error es
+            #
+            #     UnsafeNewEnumValueUsage: unsafe use of new value "seguridad"
+            #
+            # y aparece aunque el ADD VALUE y el UPDATE estén en migraciones
+            # distintas, porque las dos iban dentro de la misma transacción.
+            # Partir en dos migraciones es necesario pero no basta; esto es la
+            # otra mitad.
+            #
+            # El precio: si una migración falla, las anteriores ya están
+            # confirmadas y no se deshacen solas. A cambio, el estado en que se
+            # queda la base es el de una migración concreta, que es
+            # exactamente lo que `alembic current` sabe leer.
+            transaction_per_migration=True,
         )
 
         with context.begin_transaction():

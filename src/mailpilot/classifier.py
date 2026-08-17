@@ -50,10 +50,32 @@ class ClassificationResult(BaseModel):
 
 # Versión del prompt. Se guarda en los resultados de evaluación para poder
 # comparar mediciones: sin esto, un número suelto no dice contra qué se midió.
-PROMPT_VERSION = "v7"
+PROMPT_VERSION = "v8"
 
-# Las definiciones salen del ADR 001. Si cambian allí, hay que cambiarlas
-# aquí: son la especificación que lee el modelo.
+# Las definiciones salen del ADR 001 y, desde el v8, del ADR 006. Si cambian
+# allí, hay que cambiarlas aquí: son la especificación que lee el modelo.
+#
+# v8, LA TAXONOMÍA CAMBIA (ADR 006). Siete categorías pasan a diez, y cada una
+#   se define por UNA PREGUNTA COMPROBABLE en vez de por un tema. Es el primer
+#   cambio de prompt desde el v3 que NO es un ajuste de reglas: los v4-v7
+#   movieron errores de sitio sin mover el global (z = 0,07 entre v5 y v7)
+#   porque el problema no estaba en cómo se explicaban las categorías sino en
+#   que dos de ellas eran cajones.
+#   Lo que se rompió y por qué:
+#   - `avisos` era el 31 % de la bandeja y tenía dentro tres cosas que no se
+#     parecen: acceso a cuentas, redes sociales y avisos operativos. Ahora son
+#     `seguridad`, `social` y `avisos`.
+#   - `otros` era el 20 % y significaba a la vez "boletín al que me suscribí" y
+#     "no sé". Los boletines salen a `boletines` y `otros` queda SOLO para lo
+#     que no encaja, con lo que su frecuencia pasa a ser una métrica de salud.
+#   - `trabajo` se renombra a `empleo`: de sus 80 correos, 75 eran de portales
+#     de empleo y ninguno era trabajo real.
+#   Regla 8 nueva: INFORMAR NO ES VENDER. Ataca el error más repetido de todos
+#   los medidos —35 correcciones de `promociones` a `otros`— que eran GitHub,
+#   LeetCode, OpenAI o Goodreads contándole novedades y el modelo leyéndolo
+#   como publicidad porque lo mandaba una empresa.
+#   OJO AL MEDIR: el 82,5 % del v7 NO es comparable. Son taxonomías distintas y
+#   con diez categorías hay más formas de fallar. Hace falta medir desde cero.
 #
 # v7, tras la comparación CONTROLADA v5 vs v6 sobre el mismo conjunto (test4):
 #   v5 80,0% / v6 78,8%. El v6 no fue una mejora, y su único destrozo real
@@ -109,30 +131,46 @@ SYSTEM_PROMPT = """\
 Eres un clasificador de correo electrónico. Tu única tarea es asignar UNA
 categoría a cada correo.
 
+Cada categoría se decide con UNA PREGUNTA de respuesta comprobable. Hazte la
+pregunta, no busques "de qué va" el correo.
+
 CATEGORÍAS:
-- personal: asuntos de tu VIDA PRIVADA. Familia y amigos escribiéndote, aunque
-  llegue a través de un servicio (alguien que comparte contigo una carpeta), y
-  SALUD: citas médicas, recordatorios de consulta, resultados, analíticas,
-  óptica, dentista, revisiones
-- trabajo: CUALQUIER oferta de trabajo remunerado o gestión de tu empleo. Da
-  igual quién lo mande: un portal de empleo, una agencia, o una empresa
-  escribiéndote directamente. Vacantes, castings, eventos pagados,
-  colaboraciones retribuidas, inscripciones a puestos, prácticas
-- compras: algo que LA USUARIA compró o contrató (no otra persona). Confirmaciones de pedido,
-  entradas, tickets, comprobantes de pago, envíos, devoluciones, y encuestas
-  sobre una compra concreta
-- tramites: gestiones y papeleo. Bancos (extractos, movimientos, tarjetas,
-  seguros), administración pública, ayudas, subvenciones, documentación que
-  firmar o aportar
-- avisos: notificaciones automáticas de un servicio sobre TU CUENTA. Códigos
-  de verificación, restablecer contraseña, alertas de seguridad, inicios de
-  sesión, altas de cuenta, cambios en los términos de uso, avisos de
-  almacenamiento, menciones en aplicaciones
-- promociones: publicidad de marcas. Descuentos, rebajas, campañas, novedades
-  de producto, sorteos y boletines comerciales
-- otros: boletines de contenido al que te has suscrito (artículos, libros,
-  retos de programación, recomendaciones de lectura), y cualquier correo que
-  no encaje con claridad
+- personal — ¿lo ha escrito una PERSONA, para mí?
+  Familia y amigos, aunque llegue a través de un servicio (alguien que comparte
+  contigo una carpeta). También SALUD: citas médicas, recordatorios de
+  consulta, resultados, analíticas, óptica, dentista, revisiones.
+- seguridad — ¿va de ACCEDER a una cuenta mía?
+  Códigos de verificación, contraseñas, inicios de sesión, alertas de acceso,
+  verificación en dos pasos, dispositivos nuevos, intentos sospechosos.
+- tramites — ¿tiene CONSECUENCIAS si no lo atiendo?
+  Bancos (extractos, movimientos, tarjetas, seguros), administración pública,
+  ayudas, subvenciones, documentación que firmar o aportar, facturas y recibos.
+- compras — ¿es de algo que YA COMPRÉ?
+  Confirmaciones de pedido, entradas, tickets, comprobantes de pago, envíos,
+  devoluciones, y encuestas sobre una compra concreta. La compró la usuaria, no
+  otra persona.
+- empleo — ¿va de CONSEGUIR TRABAJO?
+  Vacantes, castings, eventos pagados, colaboraciones retribuidas,
+  inscripciones a puestos, prácticas, procesos de selección. Da igual quién lo
+  mande: un portal, una agencia o una empresa directamente.
+- boletines — ¿me SUSCRIBÍ yo a esto?
+  Contenido periódico de algo a lo que te diste de alta: artículos, libros,
+  retos de programación, recomendaciones de lectura, novedades de producto de
+  un servicio que usas, boletines de ONG. Te INFORMA, no te vende.
+- social — ¿es ACTIVIDAD DE UNA RED SOCIAL?
+  Menciones, reacciones, seguidores, mensajes, invitaciones a servidores,
+  directos, logros e insignias. Discord, Instagram, Facebook, Twitch, TikTok, X.
+- avisos — ¿un SERVICIO QUE USO me notifica algo operativo?
+  Lo que no es ni seguridad ni red social ni comercial: cambios en los términos
+  de uso, políticas de privacidad, avisos de almacenamiento, altas de cuenta,
+  estado de una solicitud, mantenimiento, cierres de servicio.
+- promociones — ¿me quiere vender algo AHORA?
+  Descuentos, rebajas, campañas, sorteos, "últimas horas", "solo hoy". Hay una
+  oferta concreta y una prisa.
+- otros — SOLO si no encaja en ninguna de las anteriores.
+  NO es un cajón de sastre ni el sitio de los boletines. Si dudas entre dos
+  categorías, elige la más específica de las dos; "otros" es para cuando
+  ninguna encaja de verdad.
 
 REGLAS, EN ORDEN DE PRIORIDAD:
 0. SALUD: si el correo va de una CITA o CONSULTA médica —recordatorio de cita,
@@ -142,7 +180,7 @@ REGLAS, EN ORDEN DE PRIORIDAD:
    "tramites". La frontera es cita o resultado frente a cobro.
 1. Si una PERSONA CONCRETA con nombre y apellido ha hecho algo DIRIGIDO A TI
    —compartir un documento contigo, invitarte, escribirte— es "personal", SALVO
-   que el asunto sea de trabajo: entonces manda el asunto. Da igual que lo
+   que el asunto sea de empleo: entonces manda el asunto. Da igual que lo
    entregue un servicio: "Lucía Espinosa via Notion", "Mónica Tortuero (vía
    Google Drive)" son personas, no plataformas.
    EXCEPCIÓN: si esa persona te REENVÍA un correo de otro, clasifícalo por su
@@ -160,47 +198,60 @@ REGLAS, EN ORDEN DE PRIORIDAD:
    de carrerilla es "personal" y "Autorización Volante - ABRIL ESPINOSA" es
    "tramites", aunque hablen de lo mismo.
 3. Si te ofrecen TRABAJO REMUNERADO o es una gestión de tu empleo, es
-   "trabajo". No importa el remitente: un portal, una agencia de casting, o
+   "empleo". No importa el remitente: un portal, una agencia de casting, o
    una empresa directamente. Vale AUNQUE use la palabra "ofertas" (en español
    significa tanto descuentos como vacantes) y AUNQUE hable de un "evento":
-   si te pagan por ir, es trabajo, no publicidad.
-4. Si es transaccional o sobre tu cuenta (código, contraseña, verificación,
-   seguridad, alta, términos de uso), es "avisos" AUNQUE lo envíe una marca
-   comercial.
+   si te pagan por ir, es empleo, no publicidad.
+4. ACCEDER A UNA CUENTA es "seguridad": código de verificación, contraseña,
+   inicio de sesión, dispositivo nuevo, alerta de acceso. AUNQUE lo envíe una
+   marca comercial y aunque el mismo remitente te mande también publicidad.
 5. Si se refiere a una compra concreta que la usuaria hizo, es "compras",
    incluidas las encuestas de satisfacción posteriores.
 6. Entre "tramites" y "avisos" gana "tramites" cuando hay dinero, papeleo o
-   una gestión de por medio.
-7. Si una PLATAFORMA te habla de CONTENIDO (libros, artículos, retos,
-   novedades editoriales, resúmenes de lo que leen otros usuarios) es
-   "otros". Si te habla de TU CUENTA (acceso, seguridad, configuración) es
-   "avisos". El mismo remitente manda las dos cosas. Esta regla NO se
-   aplica cuando detrás hay una persona concreta: eso es la regla 1.
-8. Una notificación de una plataforma sobre tu actividad dentro de ella es
-   "avisos", NUNCA "otros": menciones, logros, insignias, reacciones a lo que
-   publicas, y el estado de una solicitud o registro que hiciste.
+   una gestión con consecuencias de por medio.
+7. UN MISMO REMITENTE MANDA COSAS DISTINTAS, y eso decide la categoría, no
+   quién firma. De una misma plataforma:
+   - acceso a la cuenta            -> "seguridad"
+   - contenido al que te suscribiste -> "boletines"
+   - actividad social (menciones, reacciones, seguidores) -> "social"
+   - cambio de términos, aviso operativo -> "avisos"
+   - descuento u oferta           -> "promociones"
+   Esta regla NO se aplica si detrás hay una persona concreta: eso es la regla 1.
+8. INFORMAR NO ES VENDER. Si un servicio que usas te cuenta novedades, publica
+   un resumen o te manda su boletín, es "boletines" aunque lo mande una empresa
+   y aunque incluya enlaces a su producto. Solo es "promociones" si hay una
+   OFERTA concreta: descuento, precio, sorteo o prisa.
 9. Publicidad sin relación con una compra concreta es "promociones".
-10. Si sigues dudando, "otros".
+10. "otros" NO es la respuesta por defecto. Si dudas entre dos categorías,
+    elige la MÁS ESPECÍFICA de las dos. Usa "otros" solo cuando de verdad no
+    encaje en ninguna.
 
 EJEMPLOS:
-- "Resumen de ofertas diarias" de un portal de empleo -> trabajo
-- "1 oferta de reponedor en Madrid" -> trabajo
-- "[GitHub] Sudo email verification code" -> avisos
-- "Alerta de seguridad: nuevo inicio de sesión" -> avisos
+- "Resumen de ofertas diarias" de un portal de empleo -> empleo
+- "1 oferta de reponedor en Madrid" -> empleo
+- "[GitHub] Sudo email verification code" -> seguridad
+- "Alerta de seguridad: nuevo inicio de sesión" -> seguridad
+- "goodreads.com: Sign-in" -> seguridad
+- "Se ha iniciado sesión en un dispositivo nuevo" -> seguridad
 - "Bienvenido a Renfe" (alta de cuenta) -> avisos
-- "X te ha mencionado en un servidor" de Discord -> avisos
-- "New Badge Received" de una plataforma -> avisos
-- "goodreads.com: Sign-in" -> avisos
-- "You finished <libro>. What's next?" de Goodreads -> otros
-- "Updates from tus amigas" de Goodreads (resumen de la plataforma) -> otros
-- "Lucía Espinosa via Notion: Page shared with you" -> personal
-- "Fwd: acceso anticipado a las rebajas", reenviado por tu madre -> promociones
-- "CASTING ONLINE, te pagan" de una agencia -> trabajo
-- "Evento de peluquería profesional, plazas" de una agencia -> trabajo
-- "Onsite Voice Recording Opportunity" (trabajo pagado) -> trabajo
-- "Leo Ashworth liked tu publicación" -> avisos
+- "Actualizamos nuestra Política de Privacidad" -> avisos
 - "Tu solicitud está en revisión" -> avisos
 - "Hemos recibido tu solicitud" -> avisos
+- "X te ha mencionado en un servidor" de Discord -> social
+- "New Badge Received" de una plataforma -> social
+- "Leo Ashworth liked tu publicación" -> social
+- "Tienes 3 seguidores nuevos" -> social
+- "Empieza el directo de X" de Twitch -> social
+- "You finished <libro>. What's next?" de Goodreads -> boletines
+- "Updates from tus amigas" de Goodreads (resumen de la plataforma) -> boletines
+- "Weekly Digest" de una plataforma de contenido -> boletines
+- "Boletín semanal: 5 lecturas sobre bases de datos" -> boletines
+- "Novedades de producto: ya está disponible X" de un servicio que usas -> boletines
+- "Lucía Espinosa via Notion: Page shared with you" -> personal
+- "Fwd: acceso anticipado a las rebajas", reenviado por tu madre -> promociones
+- "CASTING ONLINE, te pagan" de una agencia -> empleo
+- "Evento de peluquería profesional, plazas" de una agencia -> empleo
+- "Onsite Voice Recording Opportunity" (trabajo pagado) -> empleo
 - "Mónica (vía Google Drive) ha compartido una carpeta" -> personal
 - "Recordatorio cita" de una óptica o clínica -> personal
 - "cv", "imprimir vinted", "matricula", sin asunto, mandado por ella misma -> personal
@@ -209,7 +260,6 @@ EJEMPLOS:
 - "Resultados de tu analítica disponibles" -> personal
 - "Factura de tu seguro de salud" -> tramites
 - "Re: [#21317373] Autorizaciones", enviado por ti misma -> tramites
-- "Weekly Digest" de una plataforma de contenido -> otros
 - "Gana un bono de 3.500 EUR para viajar" del banco -> promociones
 - "Informe mensual BBVA" -> tramites
 - "Revisa la documentación de adhesión" del banco -> tramites

@@ -90,14 +90,53 @@ def test_la_categoria_es_del_enum_no_un_texto():
     assert isinstance(resultado.category, Category)
 
 
+# La lista va ESCRITA A MANO, no sacada de `list(Category)`. Derivarla del enum
+# haría que el test se adaptara solo a cualquier cambio, que es justo lo que no
+# se quiere: añadir o quitar una categoría tiene que romper aquí y obligar a
+# venir a mirar. Es el mismo criterio que
+# `test_las_acciones_posibles_son_exactamente_estas`.
 @pytest.mark.parametrize(
     "categoria",
-    ["personal", "trabajo", "compras", "tramites", "avisos", "promociones", "otros"],
+    [
+        "personal",
+        "seguridad",
+        "tramites",
+        "compras",
+        "empleo",
+        "boletines",
+        "social",
+        "avisos",
+        "promociones",
+        "otros",
+    ],
 )
-def test_acepta_las_siete_categorias_del_adr(categoria):
+def test_acepta_las_diez_categorias_del_adr(categoria):
     resultado = classify_email(FakeOllama(respuesta_valida(categoria)), make_email())
 
     assert resultado.category.value == categoria
+
+
+def test_las_categorias_posibles_son_exactamente_estas():
+    """
+    El enum tiene diez valores y ni uno más (ADR 006).
+
+    Este test existe para romperse. `Category` es la frontera que impide que el
+    modelo devuelva cualquier cosa, y también de dónde salen las etiquetas que
+    MailPilot se cree suyas en Gmail (`NUESTRAS_ETIQUETAS`). Ampliarlo sin
+    pensar deja a MailPilot quitando etiquetas ajenas.
+    """
+    assert {c.value for c in Category} == {
+        "personal",
+        "seguridad",
+        "tramites",
+        "compras",
+        "empleo",
+        "boletines",
+        "social",
+        "avisos",
+        "promociones",
+        "otros",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -225,9 +264,12 @@ def test_se_le_pasa_el_esquema_cerrado_a_ollama():
     categorias = schema["$defs"]["Category"]["enum"]
     assert set(categorias) == {
         "personal",
-        "trabajo",
-        "compras",
+        "seguridad",
         "tramites",
+        "compras",
+        "empleo",
+        "boletines",
+        "social",
         "avisos",
         "promociones",
         "otros",

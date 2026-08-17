@@ -74,7 +74,7 @@ def propuesta_lista(session, categoria=Category.PROMOCIONES, razon="porque sí",
 def test_pinta_las_propuestas_pendientes(client, session):
     propuesta_lista(
         session,
-        categoria=Category.TRABAJO,
+        categoria=Category.EMPLEO,
         razon="es una oferta de empleo",
         subject="Entrevista el jueves",
         sender="rrhh@empresa.com",
@@ -93,12 +93,12 @@ def test_marca_la_categoria_que_propuso_el_modelo(client, session):
     pulsar otro es corregir. Si se perdiera esa marca, la usuaria no sabría
     qué le está proponiendo el modelo.
     """
-    propuesta_lista(session, categoria=Category.TRABAJO)
+    propuesta_lista(session, categoria=Category.EMPLEO)
 
     html = client.get("/?ciego=0").text
 
     assert 'class="chip propuesta-actual"' in html
-    assert 'data-categoria="trabajo"' in html
+    assert 'data-categoria="empleo"' in html
     # Están las siete opciones, no solo la propuesta: corregir es un clic.
     for categoria in Category:
         assert f'data-categoria="{categoria.value}"' in html
@@ -132,7 +132,7 @@ def test_muestra_el_acierto_real(client, session):
     segunda = propuesta_lista(session, Category.PROMOCIONES, message_id="b")
 
     decidir_propuesta(session, primera.id, ProposalStatus.APPROVED)
-    decidir_propuesta(session, segunda.id, ProposalStatus.MODIFIED, Category.TRABAJO)
+    decidir_propuesta(session, segunda.id, ProposalStatus.MODIFIED, Category.EMPLEO)
 
     html = client.get("/?ciego=0").text
 
@@ -154,7 +154,7 @@ def test_el_modo_ciego_oculta_lo_que_dijo_el_modelo(client, session):
     la razón, y con etiquetas así el acierto medido sale inflado. Es el mismo
     error que costó 18,7 puntos en la Fase 6, por otro camino.
     """
-    propuesta_lista(session, categoria=Category.TRABAJO, razon="es una oferta de empleo")
+    propuesta_lista(session, categoria=Category.EMPLEO, razon="es una oferta de empleo")
 
     html = client.get("/?ciego=1").text
 
@@ -175,7 +175,7 @@ def test_el_modo_ciego_sigue_dejando_decidir(client, session):
     Se oculta la pista visual, no la funcionalidad: los siete botones siguen
     ahí y el navegador sigue sabiendo si tu clic es aprobar o corregir.
     """
-    propuesta_lista(session, categoria=Category.TRABAJO)
+    propuesta_lista(session, categoria=Category.EMPLEO)
 
     html = client.get("/?ciego=1").text
 
@@ -198,7 +198,7 @@ def test_el_modo_normal_sigue_enseñandolo_todo(client, session):
     olvidarse del ciego solo te quita ayuda; olvidarse del parámetro
     contaminaba los datos en silencio.
     """
-    propuesta_lista(session, categoria=Category.TRABAJO, razon="es una oferta de empleo")
+    propuesta_lista(session, categoria=Category.EMPLEO, razon="es una oferta de empleo")
 
     html = client.get("/?ciego=0").text
 
@@ -364,11 +364,11 @@ def test_clasificados_marca_TU_eleccion_no_la_del_modelo(client, session):
     una categoría que precisamente habías descartado.
     """
     propuesta = propuesta_lista(session, categoria=Category.PROMOCIONES)
-    decidir_propuesta(session, propuesta.id, ProposalStatus.MODIFIED, Category.TRABAJO)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.MODIFIED, Category.EMPLEO)
 
     html = client.get("/clasificados").text
 
-    assert '<button class="chip propuesta-actual"\n                    data-categoria="trabajo"' in html
+    assert '<button class="chip propuesta-actual"\n                    data-categoria="empleo"' in html
     assert "El modelo dijo <b>promociones</b>" in html
     assert "tú elegiste" in html
 

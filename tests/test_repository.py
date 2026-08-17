@@ -167,7 +167,7 @@ def test_postgres_acepta_las_siete_categorias(session):
 
     for categoria in (
         "personal",
-        "trabajo",
+        "empleo",
         "compras",
         "tramites",
         "avisos",

@@ -47,17 +47,40 @@ class Base(DeclarativeBase):
 
 class Category(str, enum.Enum):
     """
-    Las siete categorías. Cambiar esta lista requiere migración de Alembic.
+    Las diez categorías. Cambiar esta lista requiere migración de Alembic.
 
-    `tramites` se llamaba `banco` hasta 2026-08-13. Se renombró porque ya
-    contenía ayudas públicas y trámites con la administración, que de bancario
-    no tienen nada. Ver ADR 001.
+    Cada una se define por UNA PREGUNTA CON RESPUESTA COMPROBABLE, no por un
+    tema. Es la decisión del ADR 006, y es lo que arregló que la usuaria dudara
+    al etiquetar: un tema se lee de diez maneras, un hecho verificable no.
+
+        personal     ¿lo ha escrito una persona, para mí?
+        seguridad    ¿va de acceder a una cuenta mía?
+        tramites     ¿tiene consecuencias si no lo atiendo?
+        compras      ¿es de algo que ya compré?
+        empleo       ¿va de conseguir trabajo?
+        boletines    ¿me suscribí yo a esto?
+        social       ¿es actividad de una red social?
+        avisos       ¿un servicio que uso me notifica algo operativo?
+        promociones  ¿me quiere vender algo AHORA?
+        otros        solo "no encaja en ninguna"
+
+    `otros` NO es un cajón: es una métrica de salud. Como solo significa "no
+    encaja", que suba del 5 % es la señal de que falta una categoría. Cuando
+    significaba a la vez "boletín al que me suscribí" y "no sé", el modelo lo
+    usaba de salida de emergencia y nadie podía distinguir una cosa de la otra.
+
+    Historia: `tramites` se llamaba `banco` hasta 2026-08-13 (ADR 001).
+    `empleo` se llamaba `trabajo` hasta 2026-08-17, y el nombre mentía: de sus
+    80 correos, 75 eran de portales de empleo y ninguno era trabajo real.
     """
 
     PERSONAL = "personal"
-    TRABAJO = "trabajo"
-    COMPRAS = "compras"
+    SEGURIDAD = "seguridad"
     TRAMITES = "tramites"
+    COMPRAS = "compras"
+    EMPLEO = "empleo"
+    BOLETINES = "boletines"
+    SOCIAL = "social"
     AVISOS = "avisos"
     PROMOCIONES = "promociones"
     OTROS = "otros"

@@ -126,7 +126,7 @@ def test_usa_la_clasificacion_mas_reciente(session):
     save_classification(
         session,
         email_id=email.id,
-        category=Category.TRABAJO,
+        category=Category.EMPLEO,
         confidence=0.95,
         reasoning="mejor prompt",
         model_used="qwen3:8b",
@@ -135,7 +135,7 @@ def test_usa_la_clasificacion_mas_reciente(session):
     generar_propuestas(session)
 
     propuesta = session.execute(select(ActionProposal)).scalar_one()
-    assert propuesta.category is Category.TRABAJO
+    assert propuesta.category is Category.EMPLEO
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +168,11 @@ def test_modificar_conserva_lo_que_dijo_el_modelo(session):
     propuesta = session.execute(select(ActionProposal)).scalar_one()
 
     decidida = decidir_propuesta(
-        session, propuesta.id, ProposalStatus.MODIFIED, Category.TRABAJO
+        session, propuesta.id, ProposalStatus.MODIFIED, Category.EMPLEO
     )
 
     assert decidida.category is Category.PROMOCIONES     # lo que dijo la IA
-    assert decidida.final_category is Category.TRABAJO   # lo que dijo la usuaria
+    assert decidida.final_category is Category.EMPLEO   # lo que dijo la usuaria
     assert decidida.status is ProposalStatus.MODIFIED
 
 
@@ -244,7 +244,7 @@ def test_las_correcciones_son_etiquetas_gratis(session):
 
     decidir_propuesta(session, pendientes[0].id, ProposalStatus.APPROVED)
     decidir_propuesta(
-        session, pendientes[1].id, ProposalStatus.MODIFIED, Category.TRABAJO
+        session, pendientes[1].id, ProposalStatus.MODIFIED, Category.EMPLEO
     )
 
     fallos = correcciones(session)
@@ -264,7 +264,7 @@ def test_cada_decision_queda_registrada(session):
     propuesta = session.execute(select(ActionProposal)).scalar_one()
 
     decidir_propuesta(
-        session, propuesta.id, ProposalStatus.MODIFIED, Category.TRABAJO
+        session, propuesta.id, ProposalStatus.MODIFIED, Category.EMPLEO
     )
 
     registros = (
@@ -278,7 +278,7 @@ def test_cada_decision_queda_registrada(session):
     assert len(registros) == 1
     assert registros[0].detail == {
         "propuesta": "promociones",
-        "elegida": "trabajo",
+        "elegida": "empleo",
         "acierto": False,
     }
     assert registros[0].action_proposal_id == propuesta.id
@@ -335,10 +335,10 @@ def test_rectificar_cambia_la_eleccion_sin_tocar_lo_que_dijo_el_modelo(session):
     propuesta = session.execute(select(ActionProposal)).scalar_one()
     decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
 
-    rectificada = rectificar_decision(session, propuesta.id, Category.TRABAJO)
+    rectificada = rectificar_decision(session, propuesta.id, Category.EMPLEO)
 
     assert rectificada.category is Category.PROMOCIONES     # intacto
-    assert rectificada.final_category is Category.TRABAJO
+    assert rectificada.final_category is Category.EMPLEO
     assert rectificada.status is ProposalStatus.MODIFIED    # ya no coincide
 
 
@@ -347,7 +347,7 @@ def test_rectificar_hacia_la_categoria_del_modelo_vuelve_a_aprobada(session):
     preparar(session, categoria=Category.PROMOCIONES)
     generar_propuestas(session)
     propuesta = session.execute(select(ActionProposal)).scalar_one()
-    decidir_propuesta(session, propuesta.id, ProposalStatus.MODIFIED, Category.TRABAJO)
+    decidir_propuesta(session, propuesta.id, ProposalStatus.MODIFIED, Category.EMPLEO)
 
     rectificada = rectificar_decision(session, propuesta.id, Category.PROMOCIONES)
 
@@ -379,12 +379,12 @@ def test_no_se_rectifica_lo_que_aun_no_se_ha_decidido(session):
     propuesta = session.execute(select(ActionProposal)).scalar_one()
 
     with pytest.raises(PropuestaNoDecidida):
-        rectificar_decision(session, propuesta.id, Category.TRABAJO)
+        rectificar_decision(session, propuesta.id, Category.EMPLEO)
 
 
 def test_rectificar_algo_inexistente(session):
     with pytest.raises(LookupError):
-        rectificar_decision(session, 99999, Category.TRABAJO)
+        rectificar_decision(session, 99999, Category.EMPLEO)
 
 
 def test_cada_rectificacion_deja_rastro_con_el_valor_anterior(session):

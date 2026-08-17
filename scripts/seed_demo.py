@@ -91,7 +91,7 @@ CORREOS = [
         "Propuesta de colaboración remunerada",
         "Nos gustaría contar contigo para un proyecto de dos semanas. "
         "Adjuntamos condiciones y tarifa.",
-        Category.TRABAJO,
+        Category.EMPLEO,
         0.95,
         "Ofrecen un encargo pagado con condiciones y tarifa concretas.",
     ),
