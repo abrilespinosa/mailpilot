@@ -162,6 +162,18 @@
       border-radius: 10px; padding: .85rem 1.15rem; margin-bottom: 1.25rem;
     }
     .barra-acciones b { color: var(--acento); }
+    /* La barra de progreso. Un div dentro de otro: el de fuera es el carril y
+       el de dentro se estira. Sin dependencias ni <progress>, que no se puede
+       estilar igual en todos los navegadores. */
+    .barra-progreso {
+      height: 8px; border-radius: 999px; overflow: hidden;
+      background: var(--borde); margin: -.75rem 0 1.25rem;
+    }
+    .barra-progreso .relleno {
+      height: 100%; width: 0; background: var(--acento);
+      /* La transición es lo que hace que avance en vez de dar saltos. */
+      transition: width .4s ease;
+    }
     .ejecutar {
       font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
       padding: .45rem 1rem; border-radius: 8px; border: none;
@@ -235,6 +247,19 @@
       <button class="ejecutar" id="recuperar">Preparar las {{ sin_aplicar }}</button>
     </div>
   {% endif %}
+
+  {# Cargar correos nuevos sin pasar por la terminal.
+
+     La barra de progreso empieza escondida y la enseña el JavaScript. No se
+     pinta en el servidor porque su contenido cambia cada dos segundos, y
+     recargar la página entera para mover una barra sería absurdo. #}
+  <div class="barra-acciones" id="zona-carga">
+    <span id="carga-texto">Trae correos nuevos de Gmail y los deja clasificados.</span>
+    <button class="ejecutar" id="cargar">Cargar correos</button>
+  </div>
+  <div class="barra-progreso" id="progreso" hidden>
+    <div class="relleno" id="progreso-relleno"></div>
+  </div>
 
   {# Se ve TAMBIÉN en modo ciego: un contador de acciones no delata lo que
      propuso el modelo, y sin él no se podía aplicar a Gmail sin salir del
@@ -448,6 +473,7 @@ document.addEventListener("click", (evento) => {
   if (evento.target.id === "recuperar") return recuperarAtrasadas(evento.target);
   if (evento.target.id === "sincronizar") return sincronizar(evento.target);
   if (evento.target.id === "siguientes") return siguientePagina();
+  if (evento.target.id === "cargar") return cargarCorreos(evento.target);
 
   const rescate = evento.target.closest("[data-recuperar]");
   if (rescate) return recuperar(rescate);
@@ -494,6 +520,110 @@ async function pedirPapelera(tarjeta, boton) {
     avisar(tarjeta, "No hay conexión con el servidor.");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Cargar correos nuevos de Gmail
+//
+// El servidor contesta "he empezado" al instante, no "ya está": clasificar son
+// ~10 s por correo y ninguna petición HTTP aguanta un lote entero. Así que a
+// partir de ahí esto pregunta el progreso cada dos segundos.
+// ---------------------------------------------------------------------------
+
+let vigilante = null;
+
+async function cargarCorreos(boton) {
+  boton.disabled = true;
+  boton.textContent = "Cargando…";
+
+  try {
+    const respuesta = await fetch("/jobs/load", { method: "POST" });
+
+    if (!respuesta.ok) {
+      const cuerpo = await respuesta.json().catch(() => ({}));
+      // El 503 del token caducado llega aquí. Se enseña tal cual porque el
+      // servidor manda el comando exacto que hay que ejecutar, y esconderlo
+      // detrás de un "algo ha fallado" obligaría a ir a mirar los logs.
+      return pararCarga(cuerpo.detail || "No se ha podido empezar.", boton);
+    }
+
+    document.getElementById("progreso").hidden = false;
+    vigilante = setInterval(mirarProgreso, 2000);
+    mirarProgreso();
+  } catch (error) {
+    pararCarga("No hay conexión con el servidor.", boton);
+  }
+}
+
+async function mirarProgreso() {
+  let estado;
+  try {
+    estado = await (await fetch("/jobs/status")).json();
+  } catch (error) {
+    return; // un fallo suelto de red no debe matar la vigilancia
+  }
+
+  const texto = document.getElementById("carga-texto");
+  document.getElementById("progreso-relleno").style.width = estado.porcentaje + "%";
+
+  if (estado.ocupado) {
+    let linea = estado.mensaje;
+    if (estado.total) {
+      linea = `${estado.hechos} de ${estado.total} · ${estado.porcentaje} %`;
+      if (estado.segundos_restantes !== null) {
+        linea += ` · quedan ${formatearTiempo(estado.segundos_restantes)}`;
+      }
+    }
+    texto.textContent = linea;
+    return;
+  }
+
+  // Ha terminado o ha fallado: se deja de preguntar.
+  clearInterval(vigilante);
+  vigilante = null;
+
+  const boton = document.getElementById("cargar");
+  if (estado.estado === "error") {
+    return pararCarga(estado.mensaje, boton);
+  }
+
+  texto.textContent = estado.mensaje + " Recarga para verlos.";
+  boton.disabled = false;
+  boton.textContent = "Ver los nuevos";
+  // Recargar solo sería repetir el error del que ya escarmentamos: la página
+  // se llevaría por delante tarjetas que quizá estabas corrigiendo. Avanzar
+  // es un botón, siempre.
+  boton.id = "siguientes";
+}
+
+function pararCarga(mensaje, boton) {
+  if (vigilante) { clearInterval(vigilante); vigilante = null; }
+  document.getElementById("progreso").hidden = true;
+  document.getElementById("carga-texto").textContent = mensaje;
+  boton.disabled = false;
+  boton.textContent = "Cargar correos";
+}
+
+function formatearTiempo(segundos) {
+  if (segundos < 60) return `${segundos} s`;
+  const minutos = Math.round(segundos / 60);
+  return minutos === 1 ? "1 minuto" : `${minutos} minutos`;
+}
+
+// Si al abrir la página ya hay una carga en marcha —arrancada desde otra
+// pestaña, o antes de recargar—, se engancha a ella en vez de fingir que no
+// pasa nada.
+(async function engancharseSiYaVa() {
+  try {
+    const estado = await (await fetch("/jobs/status")).json();
+    if (!estado.ocupado) return;
+    document.getElementById("progreso").hidden = false;
+    const boton = document.getElementById("cargar");
+    boton.disabled = true;
+    boton.textContent = "Cargando…";
+    vigilante = setInterval(mirarProgreso, 2000);
+    mirarProgreso();
+  } catch (error) { /* sin conexión: la página funciona igual */ }
+})();
 
 // Pasa al siguiente lote y DEJA LA PÁGINA ARRIBA.
 //

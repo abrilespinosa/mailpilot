@@ -12,12 +12,12 @@ Arrancar en desarrollo:
     uvicorn mailpilot.api:app --reload --app-dir src
 """
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from mailpilot import gmail_actions, web
+from mailpilot import gmail_actions, jobs, web
 from mailpilot.auth import NecesitaReautenticacion
 from mailpilot.db import get_session
 from mailpilot.gmail import get_service, ids_en_papelera
@@ -385,3 +385,52 @@ def execute_actions(
         "pendientes": len(acciones_pendientes(session, limit=10_000)),
         "frenado": frenado,
     }
+
+
+# ---------------------------------------------------------------------------
+# Cargar correos nuevos (el botón del dashboard)
+#
+# Traer de Gmail es rápido; clasificar son ~10 s por correo. Un lote de 100 se
+# va a veinte minutos, así que la petición solo ARRANCA el trabajo y contesta.
+# El progreso se consulta aparte. Ver `mailpilot/jobs.py`.
+# ---------------------------------------------------------------------------
+
+
+@app.post("/jobs/load", tags=["cargar"])
+def cargar_correos(
+    tareas: BackgroundTasks,
+    limit: int = Query(jobs.MAXIMO_POR_TANDA, ge=1, le=jobs.MAXIMO_POR_TANDA),
+) -> dict:
+    """
+    Trae correos nuevos de Gmail y los deja clasificados y listos para revisar.
+
+    Contesta al instante: lo que devuelve es "he empezado", no "ya está".
+
+    Las credenciales se piden AQUÍ, antes de soltar el trabajo al fondo. Si el
+    token ha caducado —cada 7 días, con el OAuth en modo Testing—, sale un 503
+    con la instrucción exacta en vez de una barra de progreso que se queda
+    congelada sin decir por qué.
+
+    Un solo trabajo a la vez. Dos tandas en paralelo se pisarían la cuenta del
+    progreso y clasificarían los mismos correos dos veces, así que la segunda
+    pulsación devuelve 409 en lugar de hacer daño en silencio.
+    """
+    if jobs.hay_uno_corriendo():
+        raise HTTPException(
+            status_code=409, detail="Ya hay una carga en marcha. Espera a que termine."
+        )
+
+    service = _servicio_gmail()
+    tareas.add_task(jobs.cargar_y_clasificar, service, limit)
+    return {"arrancado": True, "limite": limit}
+
+
+@app.get("/jobs/status", tags=["cargar"])
+def estado_carga() -> dict:
+    """
+    Cómo va la carga: porcentaje y segundos que quedan.
+
+    El dashboard lo consulta cada pocos segundos. Es de solo lectura y no toca
+    la base de datos, así que preguntarlo mucho no cuesta nada.
+    """
+    return jobs.estado_actual()

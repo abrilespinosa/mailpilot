@@ -169,6 +169,11 @@ ESCRITURA_PERMITIDA = {
     # EL ÚNICO ENDPOINT DE TODO EL PROYECTO QUE ESCRIBE EN GMAIL.
     # Ejecuta acciones que ya estaban pedidas; no puede inventarse trabajo.
     ("POST", "/actions/execute"),
+    # Cargar correos nuevos. LEE de Gmail y escribe en nuestra base de datos:
+    # correos, clasificaciones y propuestas `pending`. No modifica nada en la
+    # cuenta y no decide nada por la usuaria — deja propuestas esperando, que
+    # es exactamente lo que hacía `scripts/ingest.py` desde una terminal.
+    ("POST", "/jobs/load"),
 }
 
 
