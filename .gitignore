@@ -27,3 +27,6 @@ CLAUDE.md
 # Se regeneran con: python scripts/build_labels.py
 evaluation/labels.json
 evaluation/runs/
+
+# Volcados de la base de datos: contienen correos reales
+backups/
