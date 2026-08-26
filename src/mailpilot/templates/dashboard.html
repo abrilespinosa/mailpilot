@@ -105,6 +105,20 @@
     .asunto { font-weight: 600; margin: .45rem 0 .3rem; overflow-wrap: anywhere; }
     .extracto { color: var(--suave); font-size: .88rem; margin: 0 0 .9rem; overflow-wrap: anywhere; }
 
+    .vermas {
+      background: none; border: 0; padding: 0; margin: 0 0 .9rem;
+      color: var(--suave); font-size: .8rem; cursor: pointer; text-decoration: underline;
+    }
+    .vermas:hover { color: var(--texto); }
+    /* El cuerpo puede ser larguísimo: se le pone techo y scroll propio en vez
+       de dejar que estire la tarjeta y empuje los chips fuera de la pantalla. */
+    .cuerpo {
+      max-height: 22rem; overflow-y: auto; margin: 0 0 1rem;
+      padding: .7rem .8rem; background: var(--fondo); border: 1px solid var(--borde);
+      border-radius: 6px; font-size: .82rem; line-height: 1.5;
+      white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit;
+    }
+
     /* Lo que dijo el modelo */
     .razon {
       border-left: 3px solid var(--borde); padding: .35rem 0 .35rem .75rem;
@@ -377,6 +391,12 @@
         <p class="asunto">{{ p.email.subject }}</p>
         <p class="extracto">{{ p.email.snippet }}</p>
 
+        {# El cuerpo no está en la base de datos: se pide a Gmail al pulsar.
+           El <pre> se rellena con textContent desde el JavaScript, nunca con
+           innerHTML — es texto que escribe un desconocido. #}
+        <button class="vermas" data-vermas="1">▾ ver el correo entero</button>
+        <pre class="cuerpo" hidden></pre>
+
         {% if p.reason and not ciego %}
           <p class="razon">
             <b>El modelo dice:</b> {{ p.reason }}
@@ -465,8 +485,57 @@
 </main>
 
 <script>
+// En qué modo se está mirando esta página, pintado por el servidor.
+// Viaja con cada decisión para que quede registrado si la etiqueta se
+// puso viendo la propuesta del modelo o no. Sin este dato, un montón de
+// etiquetas mezcladas es indistinguible de un montón de etiquetas buenas.
+const CIEGO = {{ 'true' if ciego else 'false' }};
+
 // El dashboard NO tiene endpoints propios de escritura: habla con la misma API
 // JSON que usaría cualquier otro cliente. Si esta página desapareciera, las
+// Pide el cuerpo del correo a Gmail y lo enseña debajo del extracto.
+//
+// Se guarda en el propio nodo (`dataset.cargado`) para no volver a pedirlo:
+// plegar y desplegar es gratis a partir de la segunda vez.
+//
+// SEGURIDAD: el texto se mete con `textContent`. Con `innerHTML`, cualquiera
+// que te mande un correo con una etiqueta de imagen y un manejador onerror
+// ejecutaria codigo en esta pagina. Es el mismo motivo por el que la plantilla
+// nunca usa `|safe`, pero aqui no hay Jinja2 que lo haga por nosotros.
+// (Sin escribir la etiqueta literal: hay un test que exige que no haya
+// ninguna imagen en el HTML cuando no hay logo, y la caza por texto.)
+async function verCorreoEntero(boton) {
+  const tarjeta = boton.closest(".propuesta");
+  const caja = tarjeta.querySelector(".cuerpo");
+
+  if (caja.dataset.cargado) {
+    caja.hidden = !caja.hidden;
+    boton.textContent = caja.hidden ? "▾ ver el correo entero" : "▴ ocultar el correo";
+    return;
+  }
+
+  boton.disabled = true;
+  boton.textContent = "cargando…";
+  try {
+    const r = await fetch(`/emails/${tarjeta.dataset.emailId}/body`);
+    const cuerpo = await r.json();
+    if (!r.ok) throw new Error(cuerpo.detail || r.status);
+
+    caja.textContent = cuerpo.texto || "(este correo no tiene cuerpo)";
+    caja.dataset.cargado = "1";
+    caja.hidden = false;
+    boton.textContent = "▴ ocultar el correo";
+  } catch (error) {
+    // Un token caducado sale como 503 con el comando exacto. Enseñarlo aquí
+    // evita el "no funciona" sin causa: el aviso dice qué hay que hacer.
+    caja.textContent = `No se pudo traer el correo: ${error.message}`;
+    caja.hidden = false;
+    boton.textContent = "▾ reintentar";
+  } finally {
+    boton.disabled = false;
+  }
+}
+
 // reglas seguirían intactas en el servidor.
 document.addEventListener("click", (evento) => {
   if (evento.target.id === "ejecutar") return aplicarEnGmail(evento.target);
@@ -477,6 +546,9 @@ document.addEventListener("click", (evento) => {
 
   const rescate = evento.target.closest("[data-recuperar]");
   if (rescate) return recuperar(rescate);
+
+  const vermas = evento.target.closest("[data-vermas]");
+  if (vermas) return verCorreoEntero(vermas);
 
   const boton = evento.target.closest(".chip, .descartar, .papelera");
   if (!boton) return;
@@ -804,7 +876,13 @@ async function decidir(tarjeta, accion, categoria) {
     const respuesta = await fetch(`/proposals/${tarjeta.dataset.id}/${accion}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: accion === "modify" ? JSON.stringify({ category: categoria }) : null,
+      // `ciego` lo pinta el servidor al renderizar, así que es el modo real
+      // en el que se está mirando esta página. Va en las DOS acciones: aprobar
+      // también es una etiqueta, y también hay que saber si estaba anclada.
+      body: JSON.stringify({
+        category: categoria ?? null,
+        decidido_a_ciegas: CIEGO,
+      }),
     });
 
     if (respuesta.ok) {

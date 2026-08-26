@@ -17,10 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from googleapiclient.errors import HttpError
+
 from mailpilot import gmail_actions, jobs, web
 from mailpilot.auth import NecesitaReautenticacion
 from mailpilot.db import get_session
-from mailpilot.gmail import get_service, ids_en_papelera
+from mailpilot.gmail import fetch_body, get_service, ids_en_papelera
 from mailpilot.models import (
     ActionProposal,
     Email,
@@ -160,6 +162,7 @@ def _decidir(
     proposal_id: int,
     decision: ProposalStatus,
     categoria=None,
+    a_ciegas: bool | None = None,
 ) -> ActionProposal:
     """
     Traduce los errores del repositorio a códigos HTTP.
@@ -170,7 +173,7 @@ def _decidir(
     primera en silencio.
     """
     try:
-        return decidir_propuesta(session, proposal_id, decision, categoria)
+        return decidir_propuesta(session, proposal_id, decision, categoria, a_ciegas)
     except LookupError:
         raise HTTPException(status_code=404, detail="Propuesta no encontrada")
     except PropuestaYaDecidida as error:
@@ -181,10 +184,25 @@ def _decidir(
 
 @app.post("/proposals/{proposal_id}/approve", response_model=ProposalOut, tags=["propuestas"])
 def approve_proposal(
-    proposal_id: int, session: Session = Depends(get_session)
+    proposal_id: int,
+    decision: DecisionIn | None = None,
+    session: Session = Depends(get_session),
 ) -> ActionProposal:
-    """Acepta la categoría propuesta. final_category = category."""
-    return _decidir(session, proposal_id, ProposalStatus.APPROVED)
+    """
+    Acepta la categoría propuesta. final_category = category.
+
+    El cuerpo es OPCIONAL: aprobar no necesita categoría. Solo se lee de él
+    `decidido_a_ciegas`, para que aprobar registre el modo igual que corregir.
+    Sin esto, la mitad de las decisiones se quedarían sin procedencia y el
+    conjunto volvería a ser una mezcla imposible de separar.
+    """
+    return _decidir(
+        session,
+        proposal_id,
+        ProposalStatus.APPROVED,
+        None,
+        decision.decidido_a_ciegas if decision else None,
+    )
 
 
 @app.post("/proposals/{proposal_id}/modify", response_model=ProposalOut, tags=["propuestas"])
@@ -204,7 +222,13 @@ def modify_proposal(
         raise HTTPException(
             status_code=422, detail="Modificar requiere indicar una categoría"
         )
-    return _decidir(session, proposal_id, ProposalStatus.MODIFIED, decision.category)
+    return _decidir(
+        session,
+        proposal_id,
+        ProposalStatus.MODIFIED,
+        decision.category,
+        decision.decidido_a_ciegas,
+    )
 
 
 @app.post("/proposals/{proposal_id}/reject", response_model=ProposalOut, tags=["propuestas"])
@@ -307,6 +331,41 @@ def _servicio_gmail():
         return get_service(interactivo=False)
     except NecesitaReautenticacion as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/emails/{email_id}/body", tags=["correos"])
+def leer_cuerpo(email_id: int, session: Session = Depends(get_session)) -> dict:
+    """
+    El cuerpo de un correo, traído de Gmail EN EL MOMENTO.
+
+    Existe porque la ingestión guarda `format="metadata"`: en la base de datos
+    solo hay asunto, remitente y un `snippet` de ~200 caracteres —y 146 correos
+    lo tienen vacío—, que muchas veces no basta para decidir la categoría.
+
+    Es una LECTURA y no persiste nada: el cuerpo va del navegador a la pantalla
+    y se acaba ahí. Guardarlo habría exigido migración, reingerir 2.498 correos
+    y dejar el contenido en disco para siempre.
+
+    QUIEN LO PINTE DEBE USAR `textContent`, NUNCA `innerHTML`. Esto es el texto
+    más hostil de todo el sistema: lo escribe cualquiera que sepa tu dirección.
+    Jinja2 no puede protegerte aquí porque no pasa por Jinja2.
+    """
+    correo = session.get(Email, email_id)
+    if correo is None:
+        raise HTTPException(status_code=404, detail="Ese correo no existe.")
+
+    servicio = _servicio_gmail()
+    try:
+        texto = fetch_body(servicio, correo.gmail_message_id)
+    except HttpError as error:
+        # Un correo borrado a mano en Gmail da 404 ahí y aquí sería un 500
+        # sin explicación. Se traduce a algo que la pantalla pueda enseñar.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gmail no devolvió el correo: {error}",
+        ) from error
+
+    return {"texto": texto}
 
 
 @app.post("/actions/sync-trash", response_model=SyncOut, tags=["acciones"])
