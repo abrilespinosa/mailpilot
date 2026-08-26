@@ -30,3 +30,6 @@ evaluation/runs/
 
 # Volcados de la base de datos: contienen correos reales
 backups/
+
+# Conjunto de entrenamiento: contiene correos reales
+entrenamiento/dataset.json
