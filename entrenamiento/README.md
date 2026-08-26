@@ -82,13 +82,22 @@ falta las dos:
 
 | Referencia | Acierto | Qué significa |
 |---|---|---|
-| Contestar siempre `seguridad` | ~21 % | el suelo: un modelo que no piensa |
-| `qwen3:8b` con el prompt v8 | ~82 % | el listón real |
+| Contestar siempre `seguridad` | 20,9 % | el suelo: un modelo que no piensa |
+| `qwen3:8b` con el prompt v8 | **72,5 %** | el listón real, medido aquí |
 
 Sin el suelo, un 60 % no dice nada. Sin el listón, un 70 % parece un éxito
 cuando en realidad sería un retroceso.
 
-## Qué esperar
+El 82 % que se citó durante meses **nunca fue una referencia válida**: se midió
+con la taxonomía de siete categorías y sobre otros conjuntos. Un número medido
+en otro sitio no es un listón, es una anécdota. El 72,5 % de arriba sí lo es,
+porque sale de estos mismos 91 correos.
+
+## Qué se esperaba (escrito ANTES de medir)
+
+Se deja tal cual para poder contrastarlo con los resultados de abajo. Acertó en
+lo esencial —el reparto por categorías— y falló en el global: se esperaba que
+el entrenado quedara claramente por debajo, y quedó empatado.
 
 Lo más probable es que el modelo entrenado **quede por debajo del 82 % global y
 aun así gane en dos o tres categorías**. Con 359 ejemplos de entrenamiento eso
@@ -173,10 +182,14 @@ solo se llama a qwen3 cuando hace falta leer.
 `train` y reservar el `test` para el final.
 
 **La distancia train-test no es lo que hay que optimizar.** El modelo acierta
-99,2 % en `train` y 73,6 % en `test`: 25 puntos de "sobreajuste". Pero
-regularizar más lo empeora en todos los tramos —C=0.1 baja la validación
-cruzada a 66,3 %—, así que la distancia era descriptiva, no un problema. Lo que
-importa es el acierto sobre datos no vistos.
+93,3 % en `train` y 73,6 % en `test`: 19,7 puntos de "sobreajuste". Pero
+regularizar más lo empeora en todos los tramos —bajar a C=0.1 deja la
+validación cruzada en 66,3 % y subir a C=10 la mejora a 74,1 %, con el train
+al 99,2 %—, así que la distancia era descriptiva, no un problema. Lo que
+importa es el acierto sobre datos no vistos, y ahí memorizar más no hizo daño.
+(La diferencia entre C=1 y C=10 cae dentro del ±5,2 % de la validación
+cruzada, así que tampoco es una mejora: la conclusión es que la regularización
+no es la palanca.)
 
 ## Límites, para no leer de más
 
