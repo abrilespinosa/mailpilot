@@ -72,6 +72,7 @@ def buscar_asset(nombre: str) -> str | None:
 def dashboard(
     request: Request,
     limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0, description="Desde qué puesto de la cola empezar."),
     ciego: bool = Query(
         True,
         description="Oculta lo que propuso el modelo. Por defecto sí; `?ciego=0` lo enseña.",
@@ -114,7 +115,10 @@ def dashboard(
     conserva lo que dijo el modelo, `final_category` lo que elegiste), así que
     la comparación se puede hacer después sin haberla visto antes.
     """
-    pendientes = propuestas_pendientes(session, limit=limit)
+    # `offset` hace falta porque la cola no se revisa siempre por el principio:
+    # un lote recién clasificado de correos antiguos cae al final, y sin esto no
+    # había forma de llegar hasta él desde la pantalla.
+    pendientes = propuestas_pendientes(session, limit=limit, offset=offset)
     total = session.execute(
         select(func.count())
         .select_from(ActionProposal)
@@ -132,7 +136,7 @@ def dashboard(
             "propuestas": pendientes,
             "total": total,
             "mostrando": len(pendientes),
-            "offset": 0,
+            "offset": offset,
             "limit": limit,
             "categorias": list(Category),
             "stats": estadisticas(session),
