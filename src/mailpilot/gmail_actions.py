@@ -226,6 +226,40 @@ def aplicar_etiqueta(
     ).execute()
 
 
+def quitar_nuestras_etiquetas(service, gmail_message_id: str, cache: dict[str, str]) -> None:
+    """
+    La INVERSA de `aplicar_etiqueta`: deja el mensaje como si MailPilot nunca
+    lo hubiera tocado. Quita todas nuestras etiquetas y lo devuelve a Recibidos.
+
+    Se escribió para el reseteo del conjunto de entrenamiento: cuando las
+    etiquetas de la base de datos dejan de ser fiables, las de Gmail tampoco lo
+    son, y dejarlas puestas haría creer que el correo está clasificado.
+
+    LA MISMA REGLA QUE NO SE PUEDE ROMPER
+    -------------------------------------
+    Solo se quitan etiquetas de `NUESTRAS_ETIQUETAS`, derivadas del enum. Las
+    etiquetas que la usuaria creó en Gmail no se tocan, ni UNREAD, ni STARRED.
+    Igual que en `aplicar_etiqueta`, la lista se construye AQUÍ filtrando el
+    catálogo contra el conjunto cerrado, no la compone quien llama.
+
+    NO saca nada de la papelera: tirar y clasificar son dos ejes distintos
+    (ADR 002), y un correo tirado a mano se tiró por un motivo que este
+    reseteo no cuestiona.
+
+    Es idempotente: quitar una etiqueta que no está no hace nada, así que
+    reintentar es seguro.
+    """
+    quitar = [id_ for nombre, id_ in cache.items() if nombre in NUESTRAS_ETIQUETAS]
+
+    cuerpo: dict[str, list[str]] = {"addLabelIds": [INBOX]}
+    if quitar:
+        cuerpo["removeLabelIds"] = quitar
+
+    service.users().messages().modify(
+        userId="me", id=gmail_message_id, body=cuerpo
+    ).execute()
+
+
 def restaurar_de_papelera(service, gmail_message_id: str, devolver_a_inbox: bool) -> None:
     """
     Saca un mensaje de la papelera. La única acción que no quita nada.
