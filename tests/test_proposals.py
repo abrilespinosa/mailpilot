@@ -264,7 +264,11 @@ def test_cada_decision_queda_registrada(session):
     propuesta = session.execute(select(ActionProposal)).scalar_one()
 
     decidir_propuesta(
-        session, propuesta.id, ProposalStatus.MODIFIED, Category.EMPLEO
+        session,
+        propuesta.id,
+        ProposalStatus.MODIFIED,
+        Category.EMPLEO,
+        decidido_a_ciegas=True,
     )
 
     registros = (
@@ -276,10 +280,14 @@ def test_cada_decision_queda_registrada(session):
     )
 
     assert len(registros) == 1
+    # El detalle se compara ENTERO a propósito: añadir un campo al audit log
+    # tiene que romper este test y obligar a mirarlo. Es lo que pasó al añadir
+    # `a_ciegas`, que era justo la intención.
     assert registros[0].detail == {
         "propuesta": "promociones",
         "elegida": "empleo",
         "acierto": False,
+        "a_ciegas": True,
     }
     assert registros[0].action_proposal_id == propuesta.id
 
@@ -409,3 +417,103 @@ def test_cada_rectificacion_deja_rastro_con_el_valor_anterior(session):
         "antes": "promociones",       # lo que habías elegido
         "ahora": "avisos",            # lo que eliges ahora
     }
+
+
+# ---------------------------------------------------------------------------
+# Procedencia de las etiquetas: ¿se decidió a ciegas?
+# ---------------------------------------------------------------------------
+
+
+def test_el_modo_ciego_queda_registrado(session):
+    """
+    Sin este dato, un montón de etiquetas mezcladas es indistinguible de un
+    montón de etiquetas buenas. Es lo que obligó a resetear el conjunto entero:
+    había 371 etiquetas y ninguna forma de saber cuáles valían para entrenar.
+    """
+    preparar(session)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+
+    decidida = decidir_propuesta(
+        session,
+        propuesta.id,
+        ProposalStatus.MODIFIED,
+        Category.EMPLEO,
+        decidido_a_ciegas=True,
+    )
+
+    assert decidida.decidido_a_ciegas is True
+
+
+def test_aprobar_tambien_registra_el_modo(session):
+    """
+    Aprobar es una etiqueta igual que corregir. Si solo se registrara al
+    corregir, la mitad del conjunto se quedaría sin procedencia.
+    """
+    preparar(session)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+
+    decidida = decidir_propuesta(
+        session, propuesta.id, ProposalStatus.APPROVED, decidido_a_ciegas=False
+    )
+
+    assert decidida.decidido_a_ciegas is False
+
+
+def test_no_informar_el_modo_no_lo_inventa(session):
+    """
+    NULL significa "no consta", y es distinto de False ("se vio la propuesta").
+
+    Quien no informe el campo no debe poder marcar como anclada una etiqueta
+    que no lo es: eso descartaría datos buenos para siempre.
+    """
+    preparar(session)
+    generar_propuestas(session)
+    propuesta = session.execute(select(ActionProposal)).scalar_one()
+
+    decidida = decidir_propuesta(session, propuesta.id, ProposalStatus.APPROVED)
+
+    assert decidida.decidido_a_ciegas is None
+
+
+def test_una_propuesta_en_blanco_no_cuenta_como_fallo_del_modelo(session):
+    """
+    Las propuestas del reseteo llevan `category` a NULL: el modelo no opinó,
+    etiqueta la usuaria desde cero.
+
+    Sin tratar ese caso, `None == Category.X` da False y el audit log contaría
+    como error del modelo un correo sobre el que nunca dijo nada.
+    """
+    email = preparar(session)
+    session.add(
+        ActionProposal(
+            email_id=email.id,
+            proposed_action=ProposedAction.CATEGORIZE,
+            category=None,
+            status=ProposalStatus.PENDING,
+        )
+    )
+    session.commit()
+    propuesta = session.execute(
+        select(ActionProposal).where(ActionProposal.category.is_(None))
+    ).scalar_one()
+
+    decidir_propuesta(
+        session,
+        propuesta.id,
+        ProposalStatus.MODIFIED,
+        Category.PERSONAL,
+        decidido_a_ciegas=True,
+    )
+
+    registro = (
+        session.execute(
+            select(AuditLog).where(AuditLog.action_proposal_id == propuesta.id)
+        )
+        .scalars()
+        .one()
+    )
+
+    assert registro.detail["acierto"] is None
+    assert registro.detail["a_ciegas"] is True

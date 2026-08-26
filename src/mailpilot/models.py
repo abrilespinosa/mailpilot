@@ -353,6 +353,22 @@ class ActionProposal(Base):
     )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # ¿Se decidió SIN ver lo que proponía el modelo?
+    #
+    # Es la columna que faltaba, y su ausencia costó cara: hasta ahora no había
+    # forma de saber qué etiquetas eran fiables. Ver la propuesta antes de
+    # decidir empuja a darle la razón —medido en este mismo proyecto: `otros`
+    # pasa del 65,4 % al 87,5 % de acierto solo por enseñarla—, así que una
+    # etiqueta anclada sirve para afinar pero NO para medir ni para entrenar.
+    #
+    # Sin registrarlo, un montón de etiquetas mezcladas es indistinguible de un
+    # montón de etiquetas buenas, y no hay forma de saberlo después.
+    #
+    # Nullable a propósito: las filas anteriores a esta columna no lo saben, y
+    # eso es justo lo que hay que poder expresar. NULL significa "no consta",
+    # que es distinto de False ("se decidió viendo la propuesta").
+    decidido_a_ciegas: Mapped[bool | None] = mapped_column(Boolean)
+
     email: Mapped["Email"] = relationship(back_populates="proposals")
 
     def __repr__(self) -> str:

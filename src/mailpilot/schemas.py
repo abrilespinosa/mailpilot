@@ -91,6 +91,16 @@ class DecisionIn(BaseModel):
 
     category: Category | None = None
 
+    # ¿La usuaria decidió SIN ver la propuesta del modelo?
+    #
+    # Lo manda el navegador porque es el único que sabe en qué modo se estaba
+    # mirando la página. El servidor no puede deducirlo: la misma propuesta se
+    # puede decidir desde `/` (ciego) o desde `/?ciego=0`.
+    #
+    # Por defecto None ("no consta") y no False, para que un cliente que no
+    # mande el campo no acabe marcando etiquetas como ancladas sin serlo.
+    decidido_a_ciegas: bool | None = None
+
 
 class ActionOut(BaseModel):
     """Respuesta al PEDIR una acción. Nada ha pasado en Gmail todavía."""

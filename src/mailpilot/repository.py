@@ -243,6 +243,69 @@ def generar_propuestas(session: Session, limit: int = 100) -> int:
     return len(clasificaciones)
 
 
+def crear_propuestas_en_blanco(session: Session, limit: int = 50) -> int:
+    """
+    Crea propuestas SIN categoría, para que la usuaria etiquete desde cero.
+
+    POR QUÉ EXISTE
+    --------------
+    El dashboard pinta `action_proposals`, no correos. Sin una fila ahí, un
+    correo es invisible por mucho que esté en la base. Para etiquetar a mano
+    hace falta una propuesta, aunque el modelo no haya opinado.
+
+    `category` a NULL es exactamente eso: "el modelo no dice nada, decides tú".
+    No es un hueco a rellenar por un valor por defecto —no lo pongas nunca—,
+    es el dato: `category IS NULL` marca para siempre las etiquetas que son
+    100 % humanas, sin ninguna propuesta que las haya podido anclar.
+
+    Reutiliza toda la maquinaria que ya existe: los chips, `decidir_propuesta`,
+    el audit log y la cola de pendientes funcionan igual. En la pantalla, como
+    ningún chip queda marcado como "lo que dijo el modelo", cada clic entra por
+    `modify` y guarda la elección en `final_category`.
+
+    Se saltan los correos que están en la papelera: ya se decidió sobre ellos,
+    y preguntarlo otra vez es hacer perder el tiempo (ADR 002).
+    """
+    con_propuesta = select(ActionProposal.email_id).distinct()
+
+    correos = (
+        session.execute(
+            select(Email)
+            .where(
+                Email.id.not_in(con_propuesta),
+                Email.en_papelera.is_(False),
+            )
+            .order_by(Email.received_at.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+
+    for correo in correos:
+        session.add(
+            ActionProposal(
+                email_id=correo.id,
+                proposed_action=ProposedAction.CATEGORIZE,
+                category=None,
+                reason=None,
+                confidence=None,
+                status=ProposalStatus.PENDING,
+            )
+        )
+
+    if correos:
+        session.add(
+            AuditLog(
+                event_type="blank_proposals_created",
+                detail={"count": len(correos)},
+            )
+        )
+    session.commit()
+
+    return len(correos)
+
+
 def propuestas_pendientes(session: Session, limit: int = 50, offset: int = 0):
     """
     Propuestas sin decidir, de la más reciente a la más antigua.
@@ -298,6 +361,7 @@ def decidir_propuesta(
     proposal_id: int,
     decision: ProposalStatus,
     categoria_elegida: Category | None = None,
+    decidido_a_ciegas: bool | None = None,
 ) -> ActionProposal:
     """
     Registra la decisión de la usuaria sobre una propuesta.
@@ -333,6 +397,10 @@ def decidir_propuesta(
 
     propuesta.status = decision
     propuesta.decided_at = datetime.now(timezone.utc)
+    # None significa "no consta" y se deja como estaba: quien no lo informe no
+    # debe poder convertir en anclada una etiqueta que no lo es.
+    if decidido_a_ciegas is not None:
+        propuesta.decidido_a_ciegas = decidido_a_ciegas
 
     # Aceptar o corregir una categoría es pedir que se etiquete en Gmail:
     # `categorize` era justo la acción propuesta. Rechazar no encola nada,
@@ -352,11 +420,16 @@ def decidir_propuesta(
                     if propuesta.final_category
                     else None
                 ),
+                # Sin propuesta del modelo no hay acierto que medir: la
+                # etiqueta es 100 % humana. Sin este caso, `None == Category.X`
+                # daría False y contaría como fallo del modelo un correo sobre
+                # el que el modelo nunca opinó.
                 "acierto": (
                     propuesta.category == propuesta.final_category
-                    if propuesta.final_category
+                    if propuesta.final_category and propuesta.category
                     else None
                 ),
+                "a_ciegas": propuesta.decidido_a_ciegas,
             },
         )
     )
