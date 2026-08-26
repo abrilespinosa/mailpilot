@@ -109,9 +109,80 @@ clásico resuelve lo fácil en microsegundos y solo se llama a qwen3 cuando duda
 ## Los pasos
 
 1. ~~Sacar el conjunto y congelar la partición~~ — `construir_dataset.py`
-2. Medir el baseline tonto
-3. Vectorizar con TF-IDF (remitente + dominio + asunto + snippet)
-4. Entrenar la regresión logística
-5. Evaluar sobre el `test`: acierto, precisión y recall por categoría, matriz
-   de confusión, y la distancia con el acierto en `train` (sobreajuste)
-6. Comparar con `qwen3:8b` sobre el mismo `test`
+2. ~~Baseline tonto~~ · 3. ~~TF-IDF~~ · 4. ~~Entrenar~~ · 5. ~~Evaluar~~ — `entrenar.py`
+6. ~~Comparar con qwen3~~ — `comparar.py`
+
+---
+
+# Resultados (2026-08-26)
+
+```
+  baseline tonto      20.9 %
+  modelo entrenado    73.6 %    0.001 s por correo
+  qwen3:8b            72.5 %    6.3   s por correo
+```
+
+**Empate.** McNemar sobre los 31 correos en que discrepan da z = 0,00: los
+1,1 puntos son ruido. Un modelo de veinte líneas que entrena en menos de un
+segundo iguala a un LLM de 8B, y clasifica 6.000 veces más rápido.
+
+**El 82 % que se citaba antes NO era comparable.** Se midió con la taxonomía de
+siete categorías y sobre otros conjuntos. Medido aquí, sobre correo etiquetado
+a ciegas con las diez categorías actuales, qwen3 está en 72,5 %.
+
+## Se equivocan en cosas distintas
+
+| categoría | entrenado | qwen3 | gana |
+|---|---|---|---|
+| `promociones` | **0.89** | 0.42 | entrenado |
+| `empleo` | **0.91** | 0.73 | entrenado |
+| `social` | **0.86** | 0.50 | entrenado |
+| `avisos` | **0.65** | 0.45 | entrenado |
+| `boletines` | 0.67 | 0.69 | empate |
+| `compras` | 0.89 | **0.95** | qwen3 |
+| `personal` | 0.75 | **0.87** | qwen3 |
+| `seguridad` | 0.72 | **0.85** | qwen3 |
+| `tramites` | 0.62 | **0.84** | qwen3 |
+
+El reparto es el que predecía el ADR 007: **el entrenado gana donde el
+remitente casi decide** (`promociones` con solo 16 ejemplos de entrenamiento,
+`social`, `empleo`), y **qwen3 gana donde hace falta entender el correo**
+(`personal` — ¿hay una persona detrás?, `tramites` — ¿tiene consecuencias si no
+lo atiendo?).
+
+## El resultado que importa
+
+```
+  fallan los dos            9
+  solo falla el entrenado  15
+  solo falla qwen3         16
+  ────────────────────────────
+  techo si se combinan   90.1 %
+```
+
+Solo 9 de 91 correos se les resisten a los dos. Un árbitro que eligiera siempre
+al que acierta llegaría al **90,1 %**, frente al 73,6 % del mejor por separado:
+**16,5 puntos de margen**. Es la justificación medida de la arquitectura
+híbrida — el clásico resuelve en microsegundos lo que decide el remitente, y
+solo se llama a qwen3 cuando hace falta leer.
+
+## Dos lecciones de método
+
+**La validación cruzada acertó el resultado sin gastar el `test`.** Predijo
+71,3 % y el test dio 73,6 %. Se puede iterar todo lo que haga falta sobre
+`train` y reservar el `test` para el final.
+
+**La distancia train-test no es lo que hay que optimizar.** El modelo acierta
+99,2 % en `train` y 73,6 % en `test`: 25 puntos de "sobreajuste". Pero
+regularizar más lo empeora en todos los tramos —C=0.1 baja la validación
+cruzada a 66,3 %—, así que la distancia era descriptiva, no un problema. Lo que
+importa es el acierto sobre datos no vistos.
+
+## Límites, para no leer de más
+
+- **91 correos de test.** Diferencias menores de ~10 puntos no se distinguen
+  del ruido. El empate entre los dos modelos es literalmente un empate.
+- **`social` (3 en test) y `promociones` (4)** no permiten afirmar nada por
+  categoría, por buenos que se vean sus F1.
+- **El techo del 90,1 % es un techo**, no un resultado: supone un árbitro
+  perfecto que todavía no existe. Construirlo es el siguiente problema.

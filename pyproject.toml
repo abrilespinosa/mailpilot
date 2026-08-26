@@ -37,6 +37,12 @@ dependencies = [
 #   pip install -e ".[dev]"
 dev = ["pytest==9.1.1"]
 
+# Solo para el experimento del clasificador propio (ADR 007). Grupo aparte
+# porque arrastra numpy y scipy, y no hace falta ni para usar MailPilot ni
+# para pasar los tests.
+#   pip install -e ".[entrenamiento]"
+entrenamiento = ["scikit-learn==1.7.2"]
+
 [project.urls]
 Repository = "https://github.com/abrilespinosa/mailpilot"
 
