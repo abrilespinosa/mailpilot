@@ -5,8 +5,11 @@ Este módulo NO accede a credentials/ directamente: le pide las credenciales
 a auth.py y construye el cliente de la API por encima.
 """
 
+import base64
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 
 from googleapiclient.discovery import build
 
@@ -182,3 +185,135 @@ def ids_en_papelera(service) -> set[str]:
         page_token = respuesta.get("nextPageToken")
         if not page_token:
             return encontrados
+
+
+# Tope de lo que se manda al navegador. Un correo con imágenes incrustadas en
+# base64 puede pesar megas, y para decidir una categoría sobran unos miles de
+# caracteres. No es seguridad, es no colgar la pestaña.
+MAXIMO_CUERPO = 20_000
+
+# Los correos comerciales meten enlaces de seguimiento de 300 caracteres, y
+# llegan a ser la mayor parte del texto. Para decidir una categoría no aportan
+# nada y tapan lo que sí importa, así que se colapsan. Los enlaces cortos se
+# dejan tal cual: ahí el dominio se lee y a veces es justo el dato que decide.
+_ENLACE_LARGO = re.compile(r"https?://\S{60,}")
+
+# Caracteres invisibles que Gmail intercala a cientos para forzar el ancho de
+# la vista previa: espacios de ancho cero, uniones de grafemas, guiones
+# blandos. No se ven pero ocupan, y dejan el texto lleno de basura ilegible.
+_INVISIBLES = re.compile("[\u200b-\u200d\u034f\u00ad\ufeff\u2060]")
+
+
+class _SinEtiquetas(HTMLParser):
+    """
+    Convierte HTML en texto plano quedándose solo con lo que se lee.
+
+    Se usa cuando el correo no trae una parte `text/plain`. No pretende
+    renderizar: descarta `<script>` y `<style>` porque su contenido no es texto
+    que la usuaria quiera leer, y deja pasar el resto.
+
+    Ojo: esto NO es el saneado de seguridad. Lo que protege contra XSS es que
+    el navegador inserte esto con `textContent`, nunca con `innerHTML`. Aquí
+    solo se busca que el resultado sea legible.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.trozos: list[str] = []
+        self._saltar = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._saltar = True
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self._saltar = False
+        elif tag in ("p", "br", "div", "tr", "li"):
+            self.trozos.append("\n")
+
+    def handle_data(self, data):
+        if not self._saltar:
+            self.trozos.append(data)
+
+    def texto(self) -> str:
+        # Gmail mete mucho espaciador invisible para maquetar. Sin esta
+        # limpieza el resultado sale con decenas de líneas en blanco seguidas.
+        crudo = "".join(self.trozos).replace("\u200c", " ").replace("\u00ad", "")
+        lineas = [linea.strip() for linea in crudo.splitlines()]
+        return "\n".join(linea for linea in lineas if linea)
+
+
+def _decodificar(datos: str) -> str:
+    """base64url -> texto. Gmail codifica así el cuerpo de cada parte."""
+    return base64.urlsafe_b64decode(datos.encode()).decode("utf-8", errors="replace")
+
+
+def _recorrer_partes(payload: dict) -> tuple[str, str]:
+    """
+    Recorre el árbol MIME y devuelve (texto_plano, texto_html).
+
+    Un correo es un árbol: `multipart/alternative` con una parte de texto y
+    otra de HTML, `multipart/mixed` con adjuntos colgando... Por eso la función
+    se llama a sí misma en vez de mirar solo el primer nivel.
+    """
+    plano, html = "", ""
+    tipo = payload.get("mimeType", "")
+    datos = payload.get("body", {}).get("data")
+
+    if datos:
+        if tipo == "text/plain":
+            plano = _decodificar(datos)
+        elif tipo == "text/html":
+            html = _decodificar(datos)
+
+    for parte in payload.get("parts", []):
+        hijo_plano, hijo_html = _recorrer_partes(parte)
+        plano = plano or hijo_plano
+        html = html or hijo_html
+
+    return plano, html
+
+
+def fetch_body(service, message_id: str) -> str:
+    """
+    Descarga el CUERPO de un correo y lo devuelve como texto plano.
+
+    Es la única función del módulo que pide `format="full"`. El resto de la
+    ingestión usa `format="metadata"` a propósito, y esa decisión NO cambia:
+    el cuerpo se pide al vuelo cuando la usuaria pulsa "ver más" y **no se
+    guarda en la base de datos**. Así el contenido de los correos sigue sin
+    persistirse en disco y el modelo de amenazas se queda como estaba.
+
+    Tampoco llega nunca al clasificador: el LLM sigue viendo solo metadatos.
+    Alimentarlo con el cuerpo sería otra decisión, con su propio ADR, porque
+    abre la superficie de prompt injection que hoy no existe.
+
+    Prefiere la parte `text/plain`. Si el correo solo trae HTML —muy común en
+    boletines y promociones— lo convierte a texto.
+    """
+    raw = (
+        service.users()
+        .messages()
+        .get(userId="me", id=message_id, format="full")
+        .execute()
+    )
+
+    plano, html = _recorrer_partes(raw.get("payload", {}))
+
+    if not plano and html:
+        parser = _SinEtiquetas()
+        parser.feed(html)
+        plano = parser.texto()
+
+    # Si no hay ni una cosa ni la otra queda el snippet, que siempre viene.
+    texto = plano.strip() or raw.get("snippet", "")
+    texto = _INVISIBLES.sub("", texto)
+    # El relleno venía en pares "invisible + espacio": al quitar el invisible
+    # queda una tirada de espacios igual de larga. Se colapsan.
+    texto = re.sub(r"[ \t]{3,}", " ", texto)
+    texto = _ENLACE_LARGO.sub("[enlace]", texto)
+
+    # Tras quitar los enlaces quedan bloques de líneas vacías donde estaban.
+    texto = re.sub(r"\n{3,}", "\n\n", texto)
+    return texto[:MAXIMO_CUERPO]
