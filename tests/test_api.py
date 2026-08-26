@@ -158,6 +158,10 @@ ESCRITURA_PERMITIDA = {
     # --- Fase 9: los dos únicos que pueden acabar cambiando algo en Gmail ---
     # Pedir la papelera. Solo escribe una fila `pending`: no toca Gmail.
     ("POST", "/emails/{email_id}/trash"),
+    # Deshacer lo anterior. Borra la fila `pending` y ya está: como la papelera
+    # todavía no ha pasado, Gmail no se entera. Es el deshacer del botón, y es
+    # distinto de `/restore`, que sí saca de la papelera un correo ya tirado.
+    ("POST", "/emails/{email_id}/trash/cancel"),
     # Sacar de la papelera. La única acción del proyecto que no quita nada.
     ("POST", "/emails/{email_id}/restore"),
     # Preguntar a Gmail qué hay en la papelera. Es una LECTURA de Gmail que

@@ -576,17 +576,38 @@ document.addEventListener("click", (evento) => {
 async function pedirPapelera(tarjeta, boton) {
   const emailId = tarjeta.dataset.emailId;
 
-  try {
-    const respuesta = await fetch(`/emails/${emailId}/trash`, { method: "POST" });
-    if (!respuesta.ok) return avisar(tarjeta, `No se pudo pedir (${respuesta.status}).`);
+  // EL BOTÓN ES UN INTERRUPTOR, no un gesto de ida.
+  //
+  // Antes, pedir la papelera no tenía deshacer aquí: había que irse a la
+  // pestaña de papelera y recuperar el correo, que además es una acción más
+  // cara (dos peticiones a Gmail en vez de ninguna). Un gesto destructivo sin
+  // deshacer a mano invita a no usarlo, y entonces la bandeja no se vacía.
+  //
+  // Cancelar es barato porque LA PAPELERA AÚN NO HA PASADO: es una fila
+  // pendiente esperando a «Aplicar en Gmail». Se borra y Gmail ni se entera.
+  const cancelando = boton.classList.contains("pedida");
+  const ruta = cancelando ? `/emails/${emailId}/trash/cancel` : `/emails/${emailId}/trash`;
 
-    boton.classList.add("pedida");
-    boton.textContent = "🗑 pedida — se aplicará al pulsar «Aplicar en Gmail»";
+  try {
+    const respuesta = await fetch(ruta, { method: "POST" });
+    if (!respuesta.ok) {
+      const queja = cancelando ? "No se pudo cancelar" : "No se pudo pedir";
+      return avisar(tarjeta, `${queja} (${respuesta.status}).`);
+    }
+
+    boton.classList.toggle("pedida", !cancelando);
+    boton.textContent = cancelando
+      ? "🗑 a la papelera"
+      : "🗑 pedida — pulsa otra vez para deshacer";
 
     // Igual que al categorizar: la tarjeta se queda, con los chips a mano.
     // "Lo tiro" no responde a "qué es esto", y son dos preguntas (ADR 002).
-    tarjeta.classList.add("tirada");
-    tarjeta.dataset.tirada = "1";
+    tarjeta.classList.toggle("tirada", !cancelando);
+    if (cancelando) {
+      delete tarjeta.dataset.tirada;
+    } else {
+      tarjeta.dataset.tirada = "1";
+    }
     revisarPantalla();
   } catch (error) {
     avisar(tarjeta, "No hay conexión con el servidor.");

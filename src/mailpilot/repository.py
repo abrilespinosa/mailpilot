@@ -521,6 +521,51 @@ def encolar_accion(
     return fila
 
 
+def cancelar_papelera(session: Session, email_id: int) -> bool:
+    """
+    Retira una petición de papelera que TODAVÍA NO se ha ejecutado.
+
+    Devuelve True si había algo que cancelar.
+
+    NO es lo mismo que `pedir_recuperacion`, y la diferencia es el momento:
+
+        cancelar_papelera   la papelera aún no ha pasado -> se borra la fila,
+                            Gmail no se entera de nada
+        pedir_recuperacion  el correo YA está en la papelera -> hay que pedirle
+                            a Gmail que lo saque, y eso es otra acción
+
+    Por eso solo toca filas `pending`. Una acción ya ejecutada es historia y no
+    se reescribe: si se borrara, la base diría que nunca se tiró un correo que
+    sí se tiró, y `en_papelera` quedaría sin nada que lo explique.
+
+    Existe porque tirar a la papelera desde la pantalla de pendientes no tenía
+    deshacer: el único camino de vuelta era irse a otra pestaña y recuperar el
+    correo, que además es una acción más cara. Un gesto destructivo sin
+    deshacer inmediato invita a no usarlo, y entonces la bandeja no se vacía.
+    """
+    pendiente = session.execute(
+        select(GmailAction).where(
+            GmailAction.email_id == email_id,
+            GmailAction.action == GmailActionType.MOVE_TO_TRASH,
+            GmailAction.status == GmailActionStatus.PENDING,
+        )
+    ).scalar_one_or_none()
+
+    if pendiente is None:
+        return False
+
+    session.delete(pendiente)
+    session.add(
+        AuditLog(
+            email_id=email_id,
+            event_type="trash_request_cancelled",
+            detail={"gmail_action_id": pendiente.id},
+        )
+    )
+    session.commit()
+    return True
+
+
 def sincronizar_papelera(session: Session, ids_papelera: set[str]) -> dict:
     """
     Pone al día `Email.en_papelera` con lo que hay ahora mismo en Gmail.

@@ -22,6 +22,7 @@ from mailpilot.models import (
     ProposedAction,
 )
 from mailpilot.repository import (
+    cancelar_papelera,
     decidir_propuesta,
     generar_propuestas,
     save_classification,
@@ -535,3 +536,87 @@ def test_pedir_recuperacion_dos_veces_no_duplica(session):
 
     assert pedir_recuperacion(session, email.id) is True
     assert pedir_recuperacion(session, email.id) is False
+
+
+# ---------------------------------------------------------------------------
+# Deshacer la papelera antes de que ocurra
+# ---------------------------------------------------------------------------
+
+
+def _correo_con_papelera_pedida(session):
+    """Deja un correo con una petición de papelera pendiente."""
+    upsert_emails(session, [make_email("t1")])
+    email = session.execute(
+        select(Email).where(Email.gmail_message_id == "t1")
+    ).scalar_one()
+
+    session.add(
+        GmailAction(
+            email_id=email.id,
+            action=GmailActionType.MOVE_TO_TRASH,
+            status=GmailActionStatus.PENDING,
+        )
+    )
+    session.commit()
+    return email
+
+
+def test_cancelar_retira_la_peticion_de_papelera(session):
+    email = _correo_con_papelera_pedida(session)
+
+    assert cancelar_papelera(session, email.id) is True
+
+    quedan = (
+        session.execute(
+            select(GmailAction).where(
+                GmailAction.email_id == email.id,
+                GmailAction.action == GmailActionType.MOVE_TO_TRASH,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert quedan == []
+
+
+def test_cancelar_lo_que_no_estaba_pedido_no_es_un_error(session):
+    """Un segundo clic no debe reventar: la pantalla y la base acaban igual."""
+    upsert_emails(session, [make_email("t2")])
+    email = session.execute(
+        select(Email).where(Email.gmail_message_id == "t2")
+    ).scalar_one()
+
+    assert cancelar_papelera(session, email.id) is False
+
+
+def test_cancelar_NO_borra_una_papelera_YA_EJECUTADA(session):
+    """
+    EL TEST QUE IMPORTA.
+
+    Una acción ejecutada es historia y no se reescribe. Si cancelar borrara una
+    fila `executed`, la base diría que ese correo nunca se tiró —cuando sí se
+    tiró— y `en_papelera` se quedaría sin nada que lo explique.
+
+    Para un correo que YA está en la papelera el camino es `pedir_recuperacion`,
+    que sí habla con Gmail. Son dos cosas distintas y este test las separa.
+    """
+    upsert_emails(session, [make_email("t3")])
+    email = session.execute(
+        select(Email).where(Email.gmail_message_id == "t3")
+    ).scalar_one()
+
+    session.add(
+        GmailAction(
+            email_id=email.id,
+            action=GmailActionType.MOVE_TO_TRASH,
+            status=GmailActionStatus.EXECUTED,
+        )
+    )
+    session.commit()
+
+    assert cancelar_papelera(session, email.id) is False
+
+    sigue = session.execute(
+        select(GmailAction).where(GmailAction.email_id == email.id)
+    ).scalar_one()
+    assert sigue.status is GmailActionStatus.EXECUTED

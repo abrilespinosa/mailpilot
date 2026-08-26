@@ -37,6 +37,7 @@ from mailpilot.repository import (
     decidir_propuesta,
     encolar_etiquetas_atrasadas,
     sincronizar_papelera,
+    cancelar_papelera,
     encolar_accion,
     pedir_recuperacion,
     propuestas_pendientes,
@@ -295,6 +296,26 @@ def request_trash(
 
     # Ya estaba pedida: no es un error, es un segundo clic.
     return {"pedida": accion is not None, "accion": "move_to_trash"}
+
+
+@app.post("/emails/{email_id}/trash/cancel", response_model=ActionOut, tags=["acciones"])
+def cancel_trash(email_id: int, session: Session = Depends(get_session)) -> dict:
+    """
+    Retira una petición de papelera que aún no se ha aplicado en Gmail.
+
+    Es el deshacer del botón de papelera, y es barato precisamente porque nada
+    ha pasado todavía: se borra la fila pendiente y ya está. Recuperar un
+    correo que YA está en la papelera es otra cosa y va por `/restore`.
+
+    Devuelve `pedida: false` para decir "ya no está pedida". Cancelar algo que
+    no estaba pedido no es un error: es un segundo clic, y contestar 200 deja
+    la pantalla y la base diciendo lo mismo.
+    """
+    if session.get(Email, email_id) is None:
+        raise HTTPException(status_code=404, detail="Correo no encontrado")
+
+    cancelar_papelera(session, email_id)
+    return {"pedida": False, "accion": "move_to_trash"}
 
 
 @app.post("/emails/{email_id}/restore", response_model=ActionOut, tags=["acciones"])
