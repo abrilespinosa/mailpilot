@@ -141,14 +141,78 @@ def resumen(nombre: str, filas: list[dict]) -> None:
         print(f"    {categoria:14} {n:3}")
 
 
+def ampliar_solo_train() -> None:
+    """
+    Mete las etiquetas nuevas en `train` y NO TOCA `test`.
+
+    POR QUÉ ESTO Y NO REHACER LA PARTICIÓN
+    --------------------------------------
+    Rehacerla movería correos entre las dos mitades, y entonces el resultado
+    nuevo no se podría comparar con el anterior: no se sabría si cambió por
+    tener más datos o por haber cambiado el examen.
+
+    Dejando el `test` clavado, la comparación responde una sola pregunta:
+    **¿mejora el modelo con más ejemplos de entrenamiento?** Mismo examen,
+    mismos 91 correos, más material para estudiar.
+
+    Un correo que ya esté en `test` NUNCA pasa a `train`, aunque se hubiera
+    reetiquetado. Eso sería enseñarle al modelo las respuestas del examen.
+    """
+    if not DESTINO.exists():
+        raise SystemExit("No hay conjunto que ampliar. Ejecuta el script sin --ampliar.")
+
+    datos = json.loads(DESTINO.read_text(encoding="utf-8"))
+    en_test = {f["email_id"] for f in datos["test"]}
+    en_train = {f["email_id"] for f in datos["train"]}
+    ya_estan = en_test | en_train
+
+    with SessionLocal() as session:
+        todas = extraer(session)
+
+    nuevas = [f for f in todas if f["email_id"] not in ya_estan]
+
+    # La red de seguridad: si por lo que sea una fila de test se colara como
+    # "nueva", el modelo entrenaría con las respuestas del examen.
+    coladas = [f for f in nuevas if f["email_id"] in en_test]
+    assert not coladas, f"{len(coladas)} correos de test intentaron entrar en train"
+
+    if not nuevas:
+        print("No hay etiquetas nuevas desde la última vez.")
+        return
+
+    antes = len(datos["train"])
+    datos["train"].extend(nuevas)
+    datos["total"] = len(datos["train"]) + len(datos["test"])
+    datos["ampliaciones"] = datos.get("ampliaciones", []) + [
+        {"añadidas": len(nuevas), "train_resultante": len(datos["train"])}
+    ]
+
+    DESTINO.write_text(
+        json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    print(f"train: {antes} -> {len(datos['train'])}  (+{len(nuevas)})")
+    print(f"test:  {len(datos['test'])}  SIN TOCAR")
+    resumen("train (ampliado)", datos["train"])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--ampliar",
+        action="store_true",
+        help="añade las etiquetas nuevas SOLO a train, dejando el test intacto",
+    )
     parser.add_argument(
         "--force",
         action="store_true",
         help="regenera la partición aunque ya exista (INVALIDA las medidas anteriores)",
     )
     args = parser.parse_args()
+
+    if args.ampliar:
+        ampliar_solo_train()
+        return
 
     if DESTINO.exists() and not args.force:
         print(f"Ya existe {DESTINO.relative_to(DESTINO.parents[1])}.")

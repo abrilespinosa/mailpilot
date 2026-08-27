@@ -46,9 +46,10 @@ from sklearn.pipeline import Pipeline
 RAIZ = Path(__file__).resolve().parents[1]
 DATASET = RAIZ / "entrenamiento" / "dataset.json"
 MODELO = RAIZ / "entrenamiento" / "modelo.joblib"
+CUERPOS = RAIZ / "entrenamiento" / "cuerpos.json"
 
 # Columnas del array que se le pasa al ColumnTransformer.
-DOMINIO, REMITENTE, TEXTO = 0, 1, 2
+DOMINIO, REMITENTE, TEXTO, CUERPO = 0, 1, 2, 3
 
 
 def cargar():
@@ -57,13 +58,25 @@ def cargar():
 
     datos = json.loads(DATASET.read_text(encoding="utf-8"))
 
+    # El cuerpo es OPCIONAL: si no se ha traído, la columna va vacía y el
+    # modelo funciona igual que antes. Así el experimento se puede encender y
+    # apagar borrando un archivo, sin tocar código.
+    cuerpos = {}
+    if CUERPOS.exists():
+        cuerpos = json.loads(CUERPOS.read_text(encoding="utf-8"))
+
     def a_matriz(filas):
         # El asunto y el snippet se juntan: son el mismo tipo de señal (texto
         # que escribió el remitente) y separarlos solo multiplicaría columnas
         # con 359 ejemplos, que es justo lo que no conviene.
         X = np.array(
             [
-                [f["dominio"], f["remitente"], f"{f['asunto']} {f['snippet']}"]
+                [
+                    f["dominio"],
+                    f["remitente"],
+                    f"{f['asunto']} {f['snippet']}",
+                    cuerpos.get(str(f["email_id"]), ""),
+                ]
                 for f in filas
             ],
             dtype=object,
@@ -106,6 +119,21 @@ def construir_modelo() -> Pipeline:
                 # puede generalizar, solo memorizar ese correo.
                 TfidfVectorizer(lowercase=True, min_df=2, ngram_range=(1, 2)),
                 TEXTO,
+            ),
+            (
+                # EL CUERPO. Es lo único que separa "confirma tu cuenta" de
+                # "bienvenido": por fuera son el mismo correo, por dentro uno
+                # lleva un enlace de verificación y el otro consejos de uso.
+                #
+                # min_df=3 y max_df=0.5, más estrictos que en el asunto: el
+                # cuerpo trae mucha morralla repetida (pies de página, avisos
+                # legales) y mucha palabra única. Sin filtrar, esas dos cosas
+                # ahogarían la señal.
+                "cuerpo",
+                TfidfVectorizer(
+                    lowercase=True, min_df=3, max_df=0.5, ngram_range=(1, 2)
+                ),
+                CUERPO,
             ),
         ]
     )

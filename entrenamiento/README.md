@@ -199,3 +199,82 @@ no es la palanca.)
   categoría, por buenos que se vean sus F1.
 - **El techo del 90,1 % es un techo**, no un resultado: supone un árbitro
   perfecto que todavía no existe. Construirlo es el siguiente problema.
+
+---
+
+# Segunda ronda (2026-08-27)
+
+Con 109 etiquetas nuevas a ciegas (559 en total). **El `test` de 91 se mantuvo
+congelado**, así que las tres cifras son comparables entre sí: mismo examen,
+distinto material de estudio.
+
+| Entrenamiento | Validación cruzada | Test |
+|---|---|---|
+| 359, sin cuerpo | 71,3 % ± 5,2 | 73,6 % |
+| 468, sin cuerpo | 72,4 % ± 4,1 | 71,4 % |
+| **468, con cuerpo** | **75,0 % ± 3,2** | **75,8 %** |
+
+## Más datos no sirvieron de nada
+
+Un 30 % más de ejemplos de entrenamiento y el test **bajó** 2,2 puntos. Sobre
+91 correos eso son 2 correos: ruido. Pero la conclusión práctica es firme —
+**etiquetar más del mismo tipo no era el cuello de botella**.
+
+Dato que lo refuerza: `social` pasó de 15 ejemplos a 16 en 109 etiquetas
+nuevas. A ese ritmo, llegar a 50 exigiría ~1.700 etiquetas más. No hay tanto
+correo de redes sociales en esta bandeja, y ninguna cantidad de trabajo lo
+arregla.
+
+## El cuerpo del correo sí sirvió
+
++4,4 puntos en el test y +2,6 en validación cruzada, con la desviación
+estrechándose de ±5,2 a ±3,2. Que suban las dos medidas a la vez lo hace más
+creíble que los 4 puntos del test solos.
+
+Y la mejora cae donde se predijo:
+
+```
+seguridad   0,56 -> 0,67   +0,11
+avisos      0,50 -> 0,59   +0,09
+boletines   0,67 -> 0,73   +0,06
+```
+
+**Por qué tenía que ser ahí.** Con asunto y remitente, esta frontera es
+invisible:
+
+    "Confirma tu cuenta en Club·by"   -> seguridad
+    "Welcome to Supabase"             -> avisos
+
+Las palabras se solapan —cuenta, confirmar, activar, welcome— y por fuera son
+casi el mismo correo. Por dentro no: uno lleva un enlace de verificación, el
+otro consejos de uso. El snippet trae 181 caracteres de media; el cuerpo,
+1.049.
+
+**No queda resuelto**: de los 7 casos concretos que fallaban, 3 se arreglaron y
+4 siguen mal. Señal de que el modelo por fin mira el cuerpo: los dos correos
+"amazon.com: Sign-in" —asunto idéntico— ahora dan resultados distintos.
+
+## Dónde vive el cuerpo, y dónde no
+
+`entrenamiento/cuerpos.json`, gitignored, y en ningún otro sitio.
+
+- **No va a PostgreSQL.** La ingestión sigue pidiendo `format="metadata"` y la
+  tabla `emails` no tiene columna de cuerpo. Esa decisión no ha cambiado.
+- **No va a git.** La carpeta entera está ignorada salvo este README, con lista
+  negra y excepción: un archivo nuevo queda fuera por defecto.
+- Es un archivo de trabajo borrable. Existe solo para no repetir 559 llamadas
+  a Gmail en cada reentrenamiento; `rm entrenamiento/cuerpos.json` y a otra
+  cosa.
+
+**Prompt injection: aquí no aplica.** Darle el cuerpo al LLM abriría esa
+superficie, porque un correo podría intentar darle instrucciones. Al modelo
+entrenado no le puede pasar: TF-IDF no lee instrucciones, cuenta palabras. Un
+correo que diga «ignora tus reglas» solo aporta las palabras «ignora» y
+«reglas» a un vector.
+
+## El `test` está gastado
+
+Se ha mirado varias veces el 2026-08-27: la matriz de confusión, los errores
+concretos, y qué casos se arreglaron. **Cualquier ajuste a partir de aquí
+necesita un conjunto nuevo etiquetado a ciegas.** Con 559 etiquetas ya hay
+material de sobra para partir uno distinto.

@@ -31,7 +31,8 @@ evaluation/runs/
 # Volcados de la base de datos: contienen correos reales
 backups/
 
-# Conjunto de entrenamiento: contiene correos reales
-entrenamiento/dataset.json
-entrenamiento/comparacion.json
-entrenamiento/modelo.joblib
+# Entrenamiento: TODO lo de esa carpeta contiene correos reales, menos el README.
+# Lista negra con excepción en vez de enumerar archivos: así un archivo nuevo
+# queda ignorado por defecto y no se sube por olvidar añadirlo aquí.
+entrenamiento/*
+!entrenamiento/README.md
