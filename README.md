@@ -10,7 +10,7 @@
     <img src="https://github.com/abrilespinosa/mailpilot/actions/workflows/tests.yml/badge.svg" alt="tests">
   </a>
   <img src="https://img.shields.io/badge/python-3.14-blue" alt="Python 3.14">
-  <img src="https://img.shields.io/badge/tests-183-brightgreen" alt="183 tests">
+  <img src="https://img.shields.io/badge/tests-200-brightgreen" alt="200 tests">
   <img src="https://img.shields.io/badge/AI-100%25%20local-8A2BE2" alt="100% local AI">
 </p>
 
@@ -29,8 +29,8 @@ A personal learning project about backend architecture, data systems, applied AI
 security.
 
 > **Note on language.** The README is in English; the dashboard is in Spanish. This is a
-> personal tool built in its author's language, and the seven categories are Spanish all
-> the way down — the database ENUM, the Gmail labels, the prompt, and 420 hand-labelled
+> personal tool built in its author's language, and the ten categories are Spanish all
+> the way down — the database ENUM, the Gmail labels, the prompt, and 450 hand-labelled
 > mails. Translating the interface alone would leave English buttons reading
 > `promociones`; translating it properly would invalidate every measurement below.
 
@@ -64,7 +64,7 @@ security.
 | **Database** | PostgreSQL 17 · SQLAlchemy 2 · Alembic |
 | **Local AI** | Ollama · qwen3:8b (Q4_K_M, 5.2 GB) |
 | **Infra** | Docker Compose · GitHub Actions |
-| **Tests** | pytest · 183 tests against real PostgreSQL |
+| **Tests** | pytest · 200 tests against real PostgreSQL |
 
 **Zero cost.** Gmail API, local models and open-source tooling. No paid AI API, ever.
 
@@ -91,7 +91,7 @@ flowchart LR
    need them. What you never download cannot leak.
 2. **Persist** — `INSERT ... ON CONFLICT` on the Gmail id. Re-ingesting a thousand times
    leaves the same rows.
-3. **Classify** — a local model assigns one of seven categories, with generation
+3. **Classify** — a local model assigns one of ten categories, with generation
    constrained to a closed schema.
 4. **Propose** — each classification becomes a pending proposal.
 5. **Decide** — approve, correct or reject. What the model said is kept intact alongside
@@ -127,7 +127,7 @@ flowchart TB
 ```
 
 There is no field through which the model can request an action. It returns **one of
-seven categories, a number between 0 and 1, and a free-text reason** — and the reason is
+ten categories, a number between 0 and 1, and a free-text reason** — and the reason is
 shown to the person but **never interpreted as an instruction**.
 
 The defence against prompt injection is architectural, not phrase detection:
@@ -248,13 +248,154 @@ catch-all. Losing mail from real people costs far more than misfiling a promotio
 qwen3 was chosen. The criterion is not the percentage — it is what each kind of error
 costs.
 
-### Where it plateaued, and why the prompt is not to blame
+### Where it plateaued, and what actually fixed it
 
-`otros` is the worst category in all four honest measurements. It means two different
+`otros` was the worst category in all four honest measurements. It meant two different
 things at once — "a newsletter I subscribed to" and "the model is unsure" — and no prompt
 version fixes an ambiguous definition. It only moves errors around, which is exactly what
-has been happening since v3. Raising the number requires changing the specification, not
-the wording.
+had been happening since v3.
+
+So the fix was not another prompt. **The categories were redefined.**
+
+The trigger was two symptoms that turned out to be the same problem: I hesitated when
+labelling ordinary mail, and the model had been stuck at 82 % across four prompt
+versions. My own 738 labels showed where — `avisos` was 31 % of everything and held three
+unrelated things inside it, and `trabajo` was not about work at all: 75 of its 80 mails
+came from job boards.
+
+**The categories had been defined by topic, and topics have no edges.** Seven became ten,
+and each one is now defined by **a question with a checkable answer** rather than a theme:
+
+| | The question that decides |
+|---|---|
+| `personal` | did a person write this, to me? |
+| `seguridad` | is this about accessing an account of mine? |
+| `tramites` | are there consequences if I ignore it? |
+| `compras` | is this about something I already bought? |
+| `empleo` | is this about getting work? |
+| `boletines` | did I subscribe to this? |
+| `social` | is this social network activity? |
+| `avisos` | is a service I use telling me something operational? |
+| `promociones` | is it trying to sell me something **right now**? |
+| `otros` | only "fits nowhere else" |
+
+A topic can be read ten ways; a fact cannot. And `otros` stopped being a bin and became a
+**health metric**: since it now only means "fits nowhere", it going above 5 % is the
+signal that a category is missing. Across 450 hand-labelled mails it came out at **zero**.
+
+---
+
+## Then I trained my own classifier
+
+With the categories fixed, the errors changed shape. They stopped coming in groups.
+
+That matters, because a group of errors can be caught with a rule — one prompt fix took
+`trabajo` from 7/13 to 13/13. But after the redefinition the remaining mistakes were
+**seven different confusions, none repeated**. There was no rule left to write: the
+criteria were right, and what was missing was information. The model sees a sender, a
+subject and a ~180-character preview — empty for 146 of the 2,498 mails.
+
+It also wastes the strongest signal available. Every time mail arrives from
+`goodreads.com`, the LLM re-reads all ten definitions and reasons from scratch. A trained
+model learns that domain once.
+
+So I trained one: **TF-IDF + logistic regression**, on my own 450 labels, and measured it
+against qwen3 **on the same test mails**.
+
+### The set-up
+
+The honest part of this is not the model — it is twenty lines of scikit-learn. It is the
+measurement.
+
+- **Only labels decided blind.** Seeing the model's guess first pushes you to agree with
+  it, so an anchored label would teach the new model to copy the old one's biases.
+- **The 371 labels I already had were thrown away.** They mixed anchored decisions with
+  the old seven-category taxonomy, and nothing recorded which was which. That is why the
+  database now has a `decidido_a_ciegas` column, and why 450 mails were relabelled from
+  scratch against **blank proposals** — no model opinion shown at all.
+- **359 train / 91 test**, stratified, seed frozen to a file. The script refuses to
+  regenerate it: redoing the split would move mails between the two halves and silently
+  invalidate every earlier measurement.
+
+### The result
+
+| | Accuracy | Time per mail |
+|---|---|---|
+| Always answer the most common category | 20.9 % | — |
+| **Trained model** | **73.6 %** | **0.001 s** |
+| **qwen3:8b, prompt v8** | **72.5 %** | **6.3 s** |
+
+A tie — McNemar over the 31 mails they disagree on gives z = 0.00. Twenty lines of
+scikit-learn, trained in under a second, match an 8-billion-parameter LLM and classify
+6,000 times faster.
+
+**And the 82 % quoted throughout this README was never comparable.** It was measured with
+the seven-category taxonomy on different sets. Measured properly, on the same blind-
+labelled mails, qwen3 sits at 72.5 %.
+
+### What is actually interesting: they fail on different mail
+
+| Category | Trained | qwen3 | |
+|---|---|---|---|
+| `promociones` | **0.89** | 0.42 | trained wins |
+| `empleo` | **0.91** | 0.73 | trained wins |
+| `social` | **0.86** | 0.50 | trained wins |
+| `avisos` | **0.65** | 0.45 | trained wins |
+| `compras` | 0.89 | **0.95** | qwen3 wins |
+| `personal` | 0.75 | **0.87** | qwen3 wins |
+| `seguridad` | 0.72 | **0.85** | qwen3 wins |
+| `tramites` | 0.62 | **0.84** | qwen3 wins |
+
+*(F1 score: a single number combining precision and recall.)*
+
+The split is not random. **The trained model wins where the sender decides it** —
+`promociones` scores 0.89 from just 16 training examples, because "stradivarius" and
+"fnac" are enough. **qwen3 wins where the mail has to be understood** — `personal` (is
+there a person behind this?) and `tramites` (are there consequences if I ignore it?).
+
+Which leads to the number that matters:
+
+```
+both wrong                 9
+only the trained one wrong 15
+only qwen3 wrong          16
+────────────────────────────
+ceiling if combined    90.1 %
+```
+
+**Only 9 of 91 mails defeat both.** Something that always picked the right one of the two
+would reach 90.1 %, against 73.6 % for the better one alone — 16.5 points of headroom.
+That is a measured argument for a hybrid, not a guess: the fast model handles what the
+sender decides, and the LLM is called only when the mail has to be read.
+
+### What the trained model learned
+
+Unlike the LLM, its weights can be read back:
+
+| Category | Strongest signals |
+|---|---|
+| `boletines` | goodreads · mail goodreads |
+| `promociones` | stradivarius · fnac · verano |
+| `seguridad` | google · cuenta · sesión · github |
+| `personal` | gmail.com · my own address |
+| `tramites` | bbva · fnmt · solicitud |
+
+Nobody wrote any of those rules. They came out of 359 examples.
+
+And the failure is legible too. `avisos` is the worst category, and its strongest signals
+are "kaggle" and "bienvenida" — it never found a pattern, it memorised individual
+senders. That is the same category where **my own labelling was inconsistent**: two
+near-identical mails from my bank went to different categories. **The model learned my
+own uncertainty**, and no amount of code fixes that.
+
+### Honest limits
+
+- **91 test mails.** Differences under ~10 points are noise. The tie is a real tie.
+- `social` (3 in test) and `promociones` (4) cannot support any per-category claim,
+  however good their scores look.
+- **The 90.1 % is a ceiling, not a result.** It assumes a perfect referee that does not
+  exist yet. Building one is the next problem — and it needs a fresh set of blind labels,
+  because this test set has now been looked at.
 
 ---
 
@@ -265,11 +406,15 @@ the wording.
 - [x] **Phase 3** — Data model with SQLAlchemy + Alembic
 - [x] **Phase 4** — FastAPI backend
 - [x] **Phase 5** — Local classification with Ollama
-- [x] **Phase 6** — Evaluation against hand-labelled sets — **closed at 82.5 %**
+- [x] **Phase 6** — Evaluation against hand-labelled sets
 - [x] **Phase 7** — Proposals and decisions
 - [x] **Phase 8** — Dashboard, blind mode by default
 - [x] **Phase 9** — Real Gmail actions: label, archive, trash, restore
-- [ ] **Phase 10+** — Observability, full Docker, threat model document
+- [x] **Phase 10** — Seven categories became ten, each defined by a checkable question
+- [x] **Phase 11** — One button to fetch and classify, running in the background
+- [x] **Phase 12** — A trained classifier, measured against the LLM
+- [ ] **Next** — a referee between the two models · observability · full Docker ·
+      threat model document
 
 ---
 
@@ -338,13 +483,15 @@ src/mailpilot/
   schemas.py        API schemas, deliberately separate from the DB models
   repository.py     persistence, proposals and decisions
   classifier.py     classification with Ollama
+  jobs.py           the background batch behind the "load mail" button
   api.py            FastAPI: the JSON API, the only write path
   gmail_actions.py  the ONLY module that writes to Gmail
   web.py            dashboard: GET routes only, HTML only
   templates/        dashboard.html
 migrations/         Alembic
-scripts/            manual tools, including seed_demo.py
-evaluation/         labelled sets (the data itself is not versioned)
+scripts/            manual tools, including seed_demo.py and the training scripts
+evaluation/         prompt evaluation sets (the data itself is not versioned)
+entrenamiento/      the trained classifier: README + dataset (not versioned)
 docs/decisions/     ADRs
 ```
 
@@ -377,8 +524,7 @@ In [`docs/decisions/`](docs/decisions/), each with context, rejected alternative
 consequences.
 
 - [**ADR 001** — Classification categories](docs/decisions/001-categorias-de-clasificacion.md)
-  — why seven, why a closed enum, and how the definitions changed once measured against
-  real mail.
+  — why a closed enum, and how the definitions changed once measured against real mail.
 - [**ADR 002** — Trashing is not correcting](docs/decisions/002-tirar-no-es-corregir.md)
   — why "this is promotions" and "I don't want this" are separate decisions. Merging them
   would have raised measured accuracy by 3.3 points while deleting 42 % of the sample.
@@ -391,6 +537,12 @@ consequences.
 - [**ADR 005** — An installable package](docs/decisions/005-paquete-instalable.md)
   — why `src` was dropped from pytest's path: leaving it in would let the tests pass with
   a broken install.
+- [**ADR 006** — Ten categories](docs/decisions/006-diez-categorias.md)
+  — defining each category by a question with a checkable answer instead of a topic, and
+  the two PostgreSQL traps that cost an afternoon.
+- [**ADR 007** — Training my own classifier](docs/decisions/007-entrenar-un-clasificador-propio.md)
+  — why another prompt was the wrong move, and why 371 existing labels were thrown away
+  rather than reused.
 
 ---
 

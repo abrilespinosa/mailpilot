@@ -10,7 +10,7 @@
     <img src="https://github.com/abrilespinosa/mailpilot/actions/workflows/tests.yml/badge.svg" alt="tests">
   </a>
   <img src="https://img.shields.io/badge/python-3.14-blue" alt="Python 3.14">
-  <img src="https://img.shields.io/badge/tests-183-brightgreen" alt="183 tests">
+  <img src="https://img.shields.io/badge/tests-200-brightgreen" alt="200 tests">
   <img src="https://img.shields.io/badge/IA-100%25%20local-8A2BE2" alt="IA 100% local">
 </p>
 
@@ -58,7 +58,7 @@ aplicada y seguridad.
 | **Base de datos** | PostgreSQL 17 · SQLAlchemy 2 · Alembic |
 | **IA local** | Ollama · qwen3:8b (Q4_K_M, 5,2 GB) |
 | **Infra** | Docker Compose · GitHub Actions |
-| **Tests** | pytest · 183 tests contra PostgreSQL de verdad |
+| **Tests** | pytest · 200 tests contra PostgreSQL de verdad |
 
 **Coste cero.** Gmail API, modelos locales y herramientas de código abierto. Ninguna API
 de IA de pago, nunca.
@@ -86,7 +86,7 @@ flowchart LR
    modelo de datos no lo necesita. Lo que no se descarga no se puede filtrar.
 2. **Persistencia** — `INSERT ... ON CONFLICT` sobre el id de Gmail. Reingerir mil veces
    deja las mismas filas.
-3. **Clasificación** — un modelo local asigna una de siete categorías, con la generación
+3. **Clasificación** — un modelo local asigna una de diez categorías, con la generación
    restringida a un esquema cerrado.
 4. **Propuesta** — cada clasificación genera una propuesta pendiente.
 5. **Decisión** — se aprueba, se corrige o se rechaza. Lo que propuso el modelo se
@@ -122,7 +122,7 @@ flowchart TB
 ```
 
 No existe ningún campo por el que el modelo pueda pedir una acción. Devuelve **una de
-siete categorías, un número entre 0 y 1 y un texto de explicación** — y esa explicación
+diez categorías, un número entre 0 y 1 y un texto de explicación** — y esa explicación
 se le enseña a la persona pero **nunca se interpreta como instrucción**.
 
 La defensa contra prompt injection es arquitectónica, no detección de frases:
