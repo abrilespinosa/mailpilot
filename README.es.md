@@ -244,13 +244,158 @@ llama3.1 acierta más, pero **nunca predijo `personal`**: mandó los cinco al ca
 dudas. Perder correos de personas reales pesa mucho más que confundir una promoción, así
 que se eligió qwen3. El criterio no es el porcentaje, es cuánto cuesta cada tipo de error.
 
-### Dónde se estancó, y por qué no es culpa del prompt
+### Dónde se estancó, y qué lo arregló de verdad
 
-`otros` es la peor categoría en las cuatro mediciones honestas. Significa dos cosas a la
-vez —«boletín al que me suscribí» y «el modelo no sabe»— y ninguna versión de prompt
+`otros` era la peor categoría en las cuatro mediciones honestas. Significaba dos cosas a
+la vez —«boletín al que me suscribí» y «el modelo no sabe»— y ninguna versión de prompt
 arregla una definición ambigua: solo mueve errores de sitio, que es exactamente lo que
-lleva pasando desde el v3. Subir el número exige cambiar la especificación, no la
-redacción.
+llevaba pasando desde el v3.
+
+Así que el arreglo no fue otro prompt. **Se redefinieron las categorías.**
+
+El disparador fueron dos síntomas que resultaron ser el mismo problema: dudaba al
+etiquetar correo normal, y el modelo llevaba cuatro versiones de prompt clavado en el
+82 %. Mis propias 738 etiquetas dijeron dónde: `avisos` era el 31 % de todo y tenía
+dentro tres cosas que no se parecen, y `trabajo` no iba de trabajo — 75 de sus 80 correos
+eran de portales de empleo.
+
+**Las categorías estaban definidas por tema, y los temas no tienen bordes.** Siete pasaron
+a diez, y cada una se define ahora por **una pregunta con respuesta comprobable** en vez
+de por un asunto:
+
+| | La pregunta que decide |
+|---|---|
+| `personal` | ¿lo ha escrito una persona, para mí? |
+| `seguridad` | ¿va de acceder a una cuenta mía? |
+| `tramites` | ¿tiene consecuencias si no lo atiendo? |
+| `compras` | ¿es de algo que ya compré? |
+| `empleo` | ¿va de conseguir trabajo? |
+| `boletines` | ¿me suscribí yo a esto? |
+| `social` | ¿es actividad de una red social? |
+| `avisos` | ¿un servicio que uso me notifica algo operativo? |
+| `promociones` | ¿me quiere vender algo **ahora**? |
+| `otros` | solo «no encaja en ninguna» |
+
+Un tema se lee de diez maneras; un hecho no. Y `otros` dejó de ser un cajón para
+convertirse en una **métrica de salud**: como ahora solo significa «no encaja», que suba
+del 5 % es la señal de que falta una categoría. Sobre 450 correos etiquetados a mano
+salió **cero**.
+
+---
+
+## Después entrené mi propio clasificador
+
+Con las categorías arregladas, los errores cambiaron de forma. Dejaron de venir en grupos.
+
+Y eso importa, porque un grupo de errores se caza con una regla — un arreglo del prompt
+llevó `trabajo` de 7/13 a 13/13. Pero después de la redefinición, los fallos que quedaban
+eran **siete confusiones distintas, ninguna repetida**. No quedaba regla que escribir: el
+criterio era correcto y lo que faltaba era información. El modelo ve un remitente, un
+asunto y una vista previa de ~180 caracteres — vacía en 146 de los 2.498 correos.
+
+Además desperdicia la señal más fuerte que hay. Cada vez que llega correo de
+`goodreads.com`, el LLM se relee las diez definiciones y razona desde cero. Un modelo
+entrenado aprende ese dominio una vez.
+
+Así que entrené uno: **TF-IDF + regresión logística**, con mis propias 450 etiquetas, y lo
+medí contra qwen3 **sobre los mismos correos de prueba**.
+
+### El montaje
+
+Lo honesto de esto no es el modelo —son veinte líneas de scikit-learn—, es la medición.
+
+- **Solo etiquetas decididas a ciegas.** Ver la respuesta del modelo antes de decidir
+  empuja a darle la razón, así que una etiqueta anclada le enseñaría al modelo nuevo a
+  copiar los sesgos del viejo.
+- **Las 371 etiquetas que ya tenía se tiraron.** Mezclaban decisiones ancladas con la
+  taxonomía vieja de siete categorías, y nada registraba cuál era cuál. Por eso la base de
+  datos tiene ahora una columna `decidido_a_ciegas`, y por eso se reetiquetaron 450
+  correos desde cero contra **propuestas en blanco**, sin ninguna opinión del modelo a la
+  vista.
+- **359 de entrenamiento / 91 de prueba**, estratificado y con la partición congelada en
+  un archivo. El script se niega a regenerarla: rehacerla movería correos de un lado a
+  otro e invalidaría en silencio cualquier medida anterior.
+
+### El resultado
+
+| | Acierto | Tiempo por correo |
+|---|---|---|
+| Contestar siempre la categoría más frecuente | 20,9 % | — |
+| **Modelo entrenado** | **73,6 %** | **0,001 s** |
+| **qwen3:8b, prompt v8** | **72,5 %** | **6,3 s** |
+
+Empate — McNemar sobre los 31 correos en que discrepan da z = 0,00. Veinte líneas de
+scikit-learn, entrenadas en menos de un segundo, igualan a un LLM de 8.000 millones de
+parámetros y clasifican 6.000 veces más rápido.
+
+**Y el 82 % que se citaba en este README nunca fue comparable.** Se midió con la taxonomía
+de siete categorías y sobre otros conjuntos. Medido bien, sobre los mismos correos
+etiquetados a ciegas, qwen3 está en 72,5 %.
+
+### Lo verdaderamente interesante: fallan en correos distintos
+
+| Categoría | Entrenado | qwen3 | |
+|---|---|---|---|
+| `promociones` | **0,89** | 0,42 | gana el entrenado |
+| `empleo` | **0,91** | 0,73 | gana el entrenado |
+| `social` | **0,86** | 0,50 | gana el entrenado |
+| `avisos` | **0,65** | 0,45 | gana el entrenado |
+| `compras` | 0,89 | **0,95** | gana qwen3 |
+| `personal` | 0,75 | **0,87** | gana qwen3 |
+| `seguridad` | 0,72 | **0,85** | gana qwen3 |
+| `tramites` | 0,62 | **0,84** | gana qwen3 |
+
+*(F1: un solo número que combina precisión y recall.)*
+
+El reparto no es casual. **El entrenado gana donde el remitente lo decide** —
+`promociones` saca 0,89 con solo 16 ejemplos de entrenamiento, porque «stradivarius» y
+«fnac» bastan. **qwen3 gana donde hay que entender el correo** — `personal` (¿hay una
+persona detrás?) y `tramites` (¿tiene consecuencias si no lo atiendo?).
+
+De ahí sale el número que importa:
+
+```
+fallan los dos             9
+solo falla el entrenado   15
+solo falla qwen3          16
+────────────────────────────
+techo si se combinan   90,1 %
+```
+
+**Solo 9 de 91 correos se les resisten a los dos.** Algo que eligiera siempre al que
+acierta llegaría al 90,1 %, frente al 73,6 % del mejor por separado: 16,5 puntos de
+margen. Es un argumento medido a favor de un híbrido, no una intuición — el modelo rápido
+resuelve lo que decide el remitente, y al LLM se le llama solo cuando hay que leer.
+
+### Qué aprendió el modelo entrenado
+
+A diferencia del LLM, sus pesos se pueden leer:
+
+| Categoría | Señales con más peso |
+|---|---|
+| `boletines` | goodreads · mail goodreads |
+| `promociones` | stradivarius · fnac · verano |
+| `seguridad` | google · cuenta · sesión · github |
+| `personal` | gmail.com · mi propia dirección |
+| `tramites` | bbva · fnmt · solicitud |
+
+Nadie escribió ninguna de esas reglas. Salieron de 359 ejemplos.
+
+Y el fallo también se lee. `avisos` es la peor categoría, y sus señales más fuertes son
+«kaggle» y «bienvenida»: no encontró un patrón, memorizó remitentes sueltos. Es la misma
+categoría en la que **mi propio etiquetado fue inconsistente** — dos correos casi
+idénticos de mi banco fueron a categorías distintas. **El modelo aprendió mi propia duda**,
+y eso no se arregla con código.
+
+### Límites honestos
+
+- **91 correos de prueba.** Diferencias de menos de ~10 puntos son ruido. El empate es un
+  empate de verdad.
+- `social` (3 en prueba) y `promociones` (4) no permiten afirmar nada por categoría, por
+  buenos que parezcan sus números.
+- **El 90,1 % es un techo, no un resultado.** Supone un árbitro perfecto que todavía no
+  existe. Construirlo es el siguiente problema — y hace falta un conjunto nuevo de
+  etiquetas a ciegas, porque este ya se ha mirado.
 
 ---
 
@@ -261,11 +406,15 @@ redacción.
 - [x] **Fase 3** — Modelo de datos con SQLAlchemy + Alembic
 - [x] **Fase 4** — API con FastAPI
 - [x] **Fase 5** — Clasificación local con Ollama
-- [x] **Fase 6** — Evaluación con conjuntos etiquetados — **cerrada en 82,5 %**
+- [x] **Fase 6** — Evaluación con conjuntos etiquetados
 - [x] **Fase 7** — Sistema de propuestas y decisiones
 - [x] **Fase 8** — Dashboard, modo ciego por defecto
 - [x] **Fase 9** — Acciones reales: etiquetar, archivar, papelera, recuperar
-- [ ] **Fase 10+** — Observabilidad, Docker completo, documento de threat model
+- [x] **Fase 10** — De siete categorías a diez, cada una con una pregunta comprobable
+- [x] **Fase 11** — Un botón que trae y clasifica, ejecutándose en segundo plano
+- [x] **Fase 12** — Un clasificador entrenado, medido contra el LLM
+- [ ] **Siguiente** — un árbitro entre los dos modelos · observabilidad · Docker
+      completo · documento de threat model
 
 ---
 
@@ -336,13 +485,15 @@ src/mailpilot/
   schemas.py        esquemas de la API, separados de los modelos a propósito
   repository.py     persistencia, propuestas y decisiones
   classifier.py     clasificación con Ollama
+  jobs.py           la tanda de fondo que hay tras el botón de cargar correos
   api.py            FastAPI: la API JSON, único camino de escritura
   gmail_actions.py  el ÚNICO módulo que escribe en Gmail
   web.py            dashboard: solo rutas GET, solo sirve HTML
   templates/        dashboard.html
 migrations/         Alembic
-scripts/            herramientas manuales, incluido seed_demo.py
-evaluation/         conjuntos etiquetados (los datos no se versionan)
+scripts/            herramientas manuales, incluidos seed_demo.py y los de entrenamiento
+evaluation/         conjuntos de evaluación del prompt (los datos no se versionan)
+entrenamiento/      el clasificador entrenado: README + dataset (no versionado)
 docs/decisions/     ADRs
 ```
 
@@ -375,8 +526,8 @@ En [`docs/decisions/`](docs/decisions/), cada una con contexto, alternativas des
 consecuencias.
 
 - [**ADR 001** — Categorías de clasificación](docs/decisions/001-categorias-de-clasificacion.md)
-  — por qué siete, por qué un enum cerrado, y cómo cambiaron las definiciones al medirlas
-  contra correo real.
+  — por qué un enum cerrado, y cómo cambiaron las definiciones al medirlas contra correo
+  real.
 - [**ADR 002** — Tirar no es corregir](docs/decisions/002-tirar-no-es-corregir.md)
   — por qué «esto es promociones» y «esto lo tiro» son decisiones separadas. Mezclarlas
   habría subido el acierto medido 3,3 puntos borrando el 42 % de la muestra.
@@ -389,6 +540,12 @@ consecuencias.
 - [**ADR 005** — Paquete instalable](docs/decisions/005-paquete-instalable.md)
   — por qué `src` salió del path de pytest: dejarlo permitiría que los tests pasaran con
   la instalación rota.
+- [**ADR 006** — Diez categorías](docs/decisions/006-diez-categorias.md)
+  — definir cada categoría por una pregunta con respuesta comprobable en vez de por un
+  tema, y las dos trampas de PostgreSQL que costaron una tarde.
+- [**ADR 007** — Entrenar un clasificador propio](docs/decisions/007-entrenar-un-clasificador-propio.md)
+  — por qué otro prompt era el camino equivocado, y por qué se tiraron 371 etiquetas ya
+  hechas en vez de reaprovecharlas.
 
 ---
 
