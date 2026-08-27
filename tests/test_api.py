@@ -216,3 +216,59 @@ def test_ningun_endpoint_borra_nada():
     for route in app.routes:
         if hasattr(route, "methods"):
             assert "DELETE" not in route.methods, route.path
+
+
+# ---------------------------------------------------------------------------
+# CSRF: solo se escribe desde el propio dashboard
+# ---------------------------------------------------------------------------
+
+
+def test_una_web_ajena_no_puede_escribir(client):
+    """
+    EL TEST QUE IMPIDE VOLVER A ABRIRLO.
+
+    La API no tiene autenticación, y "escucha solo en localhost" no protege
+    frente al navegador: con el dashboard abierto, cualquier web que visites
+    puede lanzar peticiones a localhost:8000 desde TU navegador. La política de
+    mismo origen impide leer la respuesta, no enviar la petición, y aquí el
+    daño está en el envío — bastaba un bucle para mandar la bandeja entera a
+    la papelera sin un solo clic de la usuaria.
+    """
+    respuesta = client.post(
+        "/actions/sync-trash",
+        headers={"Origin": "https://sitio-malicioso.example"},
+    )
+
+    assert respuesta.status_code == 403
+
+
+def test_el_dashboard_si_puede_escribir(client):
+    """El origen propio pasa: si no, la interfaz dejaría de funcionar."""
+    respuesta = client.post(
+        "/proposals/999999/approve",
+        headers={"Origin": "http://testserver"},
+    )
+
+    # 404 porque la propuesta no existe, NO 403: la petición pasó el control.
+    assert respuesta.status_code == 404
+
+
+def test_sin_navegador_detras_se_permite(client):
+    """
+    Sin cabecera `Origin` no hay navegador: es curl o un script de scripts/.
+
+    Ahí no hay sesión que robar —quien ejecuta un comando ya tiene la máquina—
+    y bloquearlo rompería la ingestión y las herramientas manuales.
+    """
+    respuesta = client.post("/proposals/999999/approve")
+
+    assert respuesta.status_code == 404
+
+
+def test_leer_desde_fuera_sigue_permitido(client):
+    """GET no cambia nada, así que no necesita esta protección."""
+    respuesta = client.get(
+        "/emails", headers={"Origin": "https://sitio-malicioso.example"}
+    )
+
+    assert respuesta.status_code == 200

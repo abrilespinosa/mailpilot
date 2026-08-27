@@ -13,6 +13,7 @@ Arrancar en desarrollo:
 """
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -64,6 +65,64 @@ app = FastAPI(
 # El dashboard (Fase 8) solo añade rutas GET: sirve HTML y nada más. Sus
 # botones llaman a los endpoints POST de este mismo archivo, que son el único
 # camino de escritura del sistema.
+# Métodos que pueden cambiar algo. GET queda fuera a propósito: leer no
+# modifica nada, y el dashboard se sirve por GET.
+METODOS_DE_ESCRITURA = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+@app.middleware("http")
+async def solo_desde_esta_pagina(request, call_next):
+    """
+    Rechaza las escrituras que vienen de otra página web. Esto es CSRF.
+
+    EL ATAQUE QUE IMPIDE
+    --------------------
+    La API no tiene autenticación —es de un solo usuario y escucha en
+    localhost—, pero "localhost" no protege de nada frente al navegador: si
+    tienes el dashboard abierto y visitas una web maliciosa, esa web puede
+    lanzar peticiones a http://localhost:8000 desde TU navegador.
+
+        for (let id = 1; id < 3000; id++)
+          fetch(`http://localhost:8000/emails/${id}/trash`, {method:'POST', mode:'no-cors'});
+        fetch('http://localhost:8000/actions/execute', {method:'POST', mode:'no-cors'});
+
+    La política de mismo origen impide LEER la respuesta, no ENVIAR la
+    petición. Y aquí el daño está en el envío: eso mandaría la bandeja entera
+    a la papelera sin un clic de la usuaria. Contradice de frente el principio
+    del proyecto, que dice que solo se ejecuta lo autorizado.
+
+    POR QUÉ MIRAR `Origin` BASTA
+    ----------------------------
+    El navegador pone `Origin` en toda petición de escritura y **la página no
+    puede falsearlo**: lo escribe el navegador, no el JavaScript. Así que si
+    viene y no es esta misma página, no lo ha pedido la usuaria.
+
+    Cuando NO viene es porque no hay navegador detrás —curl, los scripts de
+    `scripts/`, los tests—, y ahí no hay sesión que robar: quien ejecuta un
+    comando en la terminal ya tiene la máquina. Por eso ausente se permite y
+    presente-y-distinto se rechaza.
+
+    No hace falta un token CSRF: sin cookies ni sesión, comparar el origen
+    cubre el mismo hueco con una décima parte del código.
+    """
+    if request.method in METODOS_DE_ESCRITURA:
+        origen = request.headers.get("origin")
+        if origen is not None:
+            propio = f"{request.url.scheme}://{request.headers.get('host', '')}"
+            if origen != propio:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": (
+                            "Petición rechazada: viene de otra página. "
+                            "MailPilot solo acepta escrituras desde su propio dashboard."
+                        )
+                    },
+                )
+
+    return await call_next(request)
+
+
 app.include_router(web.router)
 
 # Imágenes del dashboard. StaticFiles solo responde a GET y HEAD, y bloquea las
