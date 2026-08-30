@@ -397,6 +397,80 @@ y eso no se arregla con código.
   existe. Construirlo es el siguiente problema — y hace falta un conjunto nuevo de
   etiquetas a ciegas, porque este ya se ha mirado.
 
+## Después los números se hundieron, y eso resultó ser lo útil
+
+Un segundo conjunto de prueba —199 etiquetas nuevas a ciegas, correo más reciente que
+todo lo del entrenamiento— y las dos cifras se derrumbaron:
+
+| | test gen 1 (91) | test gen 2 (199) | |
+|---|---|---|---|
+| modelo entrenado | 75,8 % | **60,3 %** | −15,5 |
+| qwen3:8b | 72,5 % | **54,3 %** | −18,2 |
+
+**Por esto vale más tener el LLM al lado que su acierto.** qwen3 no aprende nada: mismo
+modelo, mismo prompt, una función fija. Si un instrumento fijo marca 72,5 y luego 54,3, lo
+que cambió no es el instrumento, **son los correos** (p ≈ 0,002). Y eso mata la
+explicación obvia: «TF-IDF memorizó remitentes viejos y no generaliza» es falso, porque el
+modelo entrenado cayó *menos* que el patrón fijo.
+
+Un modelo que no aprende, midiendo junto a uno que sí, es lo único que distingue «mi
+modelo ha empeorado» de «el examen es más difícil».
+
+La validación cruzada dentro del entrenamiento dice 77,8 %; el test dice 60,3 %. Esos 17,5
+puntos son el precio de una partición al azar. **El 75,8 % nunca midió correo nuevo**: su
+test era una muestra al azar del mismo periodo que su entrenamiento.
+
+Por qué el correo reciente es más difícil: **no lo sé.** Lo sólido es que lo es.
+
+## El árbitro: funciona, pero no como esperaba
+
+Los dos modelos fallan en correos distintos, así que algo que eligiera siempre al que
+acierta ganaría terreno de verdad. La palanca obvia era la confianza — y al contrario que
+la del LLM, la del modelo entrenado **sí está calibrada**:
+
+| | separación entre aciertos y fallos |
+|---|---|
+| qwen3, cuatro mediciones | +0,004 a +0,019 |
+| modelo entrenado, fuera de partición | **+0,266** |
+
+Y sube monótona: 35,6 % de acierto por debajo de 0,3 y **99,4 % por encima de 0,8, que es
+un tercio de todo el correo**. Así que: pasarle el correo dudoso al LLM y ganar. Un solo
+número lo mató:
+
+```
+en los 264 correos donde el modelo entrenado duda
+  modelo entrenado  58,3 %
+  qwen3:8b          50,4 %
+```
+
+El LLM es *peor* justo donde hacía falta que fuera mejor. Su 54,3 % nunca fue su nota en
+el correo difícil: era el promedio de acertar mucho en lo fácil. «Si dudo, le pregunto al
+que razona» es una intuición fuerte y es falsa.
+
+Lo que funciona es condicionar por **lo que dice el LLM**. Test pareado (McNemar exacto)
+sobre los 559 correos de entrenamiento, fuera de partición:
+
+| el LLM dice | arregla | rompe | p |
+|---|---|---|---|
+| **`seguridad`** | **10** | **0** | **0,002** |
+| `tramites` | 10 | 4 | 0,180 |
+| `avisos` | 7 | 24 | 0,003 |
+| `promociones` | 2 | 14 | 0,004 |
+
+Diez de diez. Sobrevive a corregir por haber mirado diez categorías, la tabla es
+significativa en *las dos* direcciones —ceder en `avisos` rompería 24— y hay mecanismo:
+`seguridad` se define por lo que el correo te pide *hacer*, y «confirma tu cuenta»
+comparte casi todo su vocabulario con «bienvenido a». Es la misma frontera donde darle el
+cuerpo del correo al modelo entrenado ayudó más.
+
+Así que el árbitro es una línea: creer al modelo entrenado, salvo cuando el LLM dice
+`seguridad`. `tramites` se queda fuera con p = 0,18 hasta que lo juzgue un tercer conjunto.
+
+**Dos advertencias que prefiero decir a esconder.** Todo esto se eligió mirando el
+conjunto de entrenamiento, así que el número honesto todavía no existe. Y la confianza
+calibrada vale más que el árbitro: un tercio de la bandeja llega con un 99,4 % de acierto,
+o sea un tercio que podría dejar de necesitarme — y eso está sin construir.
+
 ---
 
 ## Estado
@@ -413,8 +487,10 @@ y eso no se arregla con código.
 - [x] **Fase 10** — De siete categorías a diez, cada una con una pregunta comprobable
 - [x] **Fase 11** — Un botón que trae y clasifica, ejecutándose en segundo plano
 - [x] **Fase 12** — Un clasificador entrenado, medido contra el LLM
-- [ ] **Siguiente** — un árbitro entre los dos modelos · observabilidad · Docker
-      completo · documento de threat model
+- [x] **Un árbitro entre los dos modelos** — cede por categoría, no por confianza
+- [ ] **Siguiente** — un tercer conjunto a ciegas para medir el árbitro honestamente ·
+      auto-aprobar el tercio de la bandeja de confianza alta · observabilidad ·
+      Docker completo · documento de threat model
 
 ---
 
@@ -546,6 +622,8 @@ consecuencias.
 - [**ADR 007** — Entrenar un clasificador propio](docs/decisions/007-entrenar-un-clasificador-propio.md)
   — por qué otro prompt era el camino equivocado, y por qué se tiraron 371 etiquetas ya
   hechas en vez de reaprovecharlas.
+- [**ADR 008** — El árbitro cede por categoría](docs/decisions/008-el-arbitro-cede-por-categoria.md)
+  — el umbral de confianza que parecía obvio, falló, y merecía quedar escrito igual.
 
 ---
 

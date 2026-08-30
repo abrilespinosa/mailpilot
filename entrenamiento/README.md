@@ -278,3 +278,133 @@ Se ha mirado varias veces el 2026-08-27: la matriz de confusión, los errores
 concretos, y qué casos se arreglaron. **Cualquier ajuste a partir de aquí
 necesita un conjunto nuevo etiquetado a ciegas.** Con 559 etiquetas ya hay
 material de sobra para partir uno distinto.
+
+---
+
+# Tercera ronda (2026-08-29) — el test de generación 2
+
+199 etiquetas nuevas a ciegas (758 en total), test viejo jubilado. **Las dos
+mediciones se hundieron a la vez.**
+
+| | test gen 1 (91) | test gen 2 (199) | |
+|---|---|---|---|
+| modelo entrenado | 75,8 % | **60,3 %** | −15,5 |
+| qwen3:8b (v8) | 72,5 % | **54,3 %** | −18,2 |
+
+## Por qué esto no es "mi modelo ha empeorado"
+
+**qwen3 es el control, y eso es lo que hace interpretable la caída.** qwen3 no
+aprende nada: mismo modelo, mismo prompt, función fija. Si el mismo instrumento
+marca 72,5 y luego 54,3, lo que cambió no es el instrumento, **son los correos**
+(p ≈ 0,002).
+
+De ahí se sigue algo que no se esperaba: la hipótesis obvia —"TF-IDF memorizó
+remitentes viejos y no generaliza"— es **falsa**. El modelo entrenado cayó
+MENOS que el patrón fijo. Aguantó mejor que el listón.
+
+Tener un modelo que no aprende midiendo al lado del que sí vale más que
+cualquier validación cruzada: es lo único que distingue "mi modelo ha
+empeorado" de "el examen es más difícil".
+
+## El test es una rodaja de tiempo, no una muestra
+
+`crear_propuestas_en_blanco` ordena por `received_at.desc()`, así que cada tanda
+son los N más recientes sin preparar. Siete de nueve categorías salen con la
+proporción de `train` casi clavada, pero **`empleo` (6,1 % de train) y `social`
+(2,9 %) salen a CERO**. Para `empleo` no es azar: P(0 de 199) ≈ 4 en un millón.
+En el correo reciente ya no llegan ofertas de empleo.
+
+**Esto es una virtud, no un defecto**, y conviene no "arreglarlo". Un test
+posterior en el tiempo a `train` es un *holdout temporal*, que es el diseño
+correcto para la pregunta real: ¿cuánto acertará con el correo que llegue
+mañana? La validación cruzada dentro de `train` da 77,8 % ± 1,1 contra 60,3 %
+en el test — **17,5 puntos de hueco** que miden exactamente cuánto engaña una
+partición al azar. El 75,8 % de la generación 1 nunca midió correo nuevo: su
+test era una muestra al azar del mismo periodo que su train.
+
+Lo que sí falta es que el informe diga de qué categorías no puede hablar. Eso
+ya está: `--nuevo-test` avisa de las categorías con menos de 5 ejemplos o
+ninguno.
+
+## Por qué el correo reciente es más difícil: NO SE SABE
+
+Lo sólido es que lo es. No inventar la explicación en la próxima sesión.
+
+---
+
+# Cuarta ronda (2026-08-30) — el árbitro
+
+Ver el ADR 008 para la decisión. Aquí van las dos cosas que se aprendieron
+midiendo, incluida la hipótesis que se cayó.
+
+## Lo que se esperaba (escrito ANTES de medir)
+
+Que la confianza del modelo entrenado sirviera de señal para ceder: si duda,
+que conteste qwen3. La predicción concreta era que qwen3 rendiría por encima de
+su media en el correo dudoso, porque son correos raros y un LLM razona.
+
+## Lo que salió: la confianza está calibrada, y aun así la regla falla
+
+**Primera confianza calibrada de todo el proyecto.**
+
+| | separación aciertos−fallos |
+|---|---|
+| qwen3, cuatro mediciones | +0,004 a +0,019 |
+| modelo entrenado, fuera de partición | **+0,266** |
+
+| confianza | n | acierto |
+|---|---|---|
+| 0,0–0,3 | 45 | 35,6 % |
+| 0,3–0,4 | 69 | 56,5 % |
+| 0,4–0,5 | 84 | 63,1 % |
+| 0,5–0,6 | 66 | 69,7 % |
+| 0,6–0,7 | 73 | 87,7 % |
+| 0,7–0,8 | 47 | 91,5 % |
+| **0,8–1,0** | **175** | **99,4 %** |
+
+Monótona, sin un escalón hacia atrás. Un tercio del correo va con 99,4 % de
+acierto.
+
+**Y la predicción era falsa.** En los 264 correos donde el entrenado duda:
+
+```
+modelo entrenado  58,3 %
+qwen3:8b          50,4 %
+```
+
+qwen3 no rinde por encima de su media en el correo difícil: rinde **por
+debajo**. Su 54,3 % global era el promedio de acertar mucho en lo fácil. La
+intuición "si dudo, pregunto a quien razona" es fuerte y es falsa.
+
+## Lo que sí funciona
+
+Condicionar por lo que qwen3 **dice**, no por lo dudoso que sea el correo. Test
+pareado (McNemar exacto) sobre los 559 de `train`:
+
+| qwen3 dice | arregla | rompe | p |
+|---|---|---|---|
+| **`seguridad`** | **10** | **0** | **0,002** |
+| `tramites` | 10 | 4 | 0,180 |
+| `avisos` | 7 | 24 | 0,003 |
+| `promociones` | 2 | 14 | 0,004 |
+
+Árbitro (solo `seguridad`): **79,6 %** sobre `train`, +1,8.
+
+Tiene mecanismo, que es lo que lo hace creíble: `seguridad` se define por lo que
+el correo te PIDE hacer, y "confirma tu cuenta" comparte casi todo su
+vocabulario con "bienvenido a". Es la misma frontera donde meter el cuerpo dio
+la mayor mejora al entrenado (+0,11).
+
+## La lección de método
+
+La validación anidada daba **80,0 % ± 5,6** —invisible, ruido— y el test
+pareado da **p = 0,002** sobre los mismos datos. Los dos sistemas ven los MISMOS
+correos y coinciden en casi todos: comparar porcentajes globales tira la
+información justo donde está. Con lotes de este tamaño, comparar en pareado o
+no ver nada.
+
+## Qué falta
+
+El número honesto. Todo esto se eligió mirando `train`, y el gen 2 está gastado.
+La generación 3 bloquea dos cosas: medir el árbitro y decidir si `tramites`
+entra.

@@ -397,6 +397,79 @@ own uncertainty**, and no amount of code fixes that.
   exist yet. Building one is the next problem — and it needs a fresh set of blind labels,
   because this test set has now been looked at.
 
+## Then the numbers fell, and that turned out to be the useful part
+
+A second test set — 199 fresh blind labels, mail more recent than anything in training —
+and both scores collapsed:
+
+| | test gen 1 (91) | test gen 2 (199) | |
+|---|---|---|---|
+| trained model | 75.8 % | **60.3 %** | −15.5 |
+| qwen3:8b | 72.5 % | **54.3 %** | −18.2 |
+
+**This is why keeping the LLM around is worth more than its accuracy.** qwen3 learns
+nothing: same model, same prompt, a fixed function. When a fixed instrument reads 72.5
+and then 54.3, what changed is not the instrument — it is the mail (p ≈ 0.002). Which
+also kills the obvious explanation: "TF-IDF memorised old senders and cannot generalise"
+is false, because the trained model fell *less* than the fixed yardstick did.
+
+A model that does not learn, measuring next to one that does, is the only thing that
+tells "my model got worse" apart from "the exam got harder".
+
+Cross-validation inside the training set says 77.8 %; the test says 60.3 %. Those 17.5
+points are the price of a random split. **The 75.8 % never measured new mail** — its test
+was a random sample from the same period as its training data.
+
+Why recent mail is harder: **I don't know.** What is solid is that it is.
+
+## The referee: it works, but not the way I expected
+
+The two models fail on different mail, so something that always picked the right one
+would gain real ground. The obvious lever was confidence — and unlike the LLM, the
+trained model's confidence **is calibrated**:
+
+| | gap between hits and misses |
+|---|---|
+| qwen3, four measurements | +0.004 to +0.019 |
+| trained model, out of fold | **+0.266** |
+
+It rises monotonically: 35.6 % accuracy below 0.3, **99.4 % above 0.8 — a third of all
+mail**. So: hand the unsure mail to the LLM and win. One number killed that:
+
+```
+on the 264 mails where the trained model is unsure
+  trained model  58.3 %
+  qwen3:8b       50.4 %
+```
+
+The LLM is *worse* exactly where help was needed. Its 54.3 % was never its mark on hard
+mail — it was the average of doing well on easy mail. "If I'm unsure, ask the one that
+reasons" is a strong intuition and it is wrong.
+
+What works is conditioning on **what the LLM says**. Paired test (exact McNemar) over the
+559 training mails, out of fold:
+
+| LLM says | fixes | breaks | p |
+|---|---|---|---|
+| **`seguridad`** | **10** | **0** | **0.002** |
+| `tramites` | 10 | 4 | 0.180 |
+| `avisos` | 7 | 24 | 0.003 |
+| `promociones` | 2 | 14 | 0.004 |
+
+Ten out of ten. It survives correcting for having looked at ten categories, the table is
+significant in *both* directions — ceding on `avisos` would break 24 — and there is a
+mechanism: `seguridad` is defined by what a mail asks you to *do*, and "confirm your
+account" shares almost all its vocabulary with "welcome to". That is the same frontier
+where feeding the body to the trained model helped most.
+
+So the referee is one line: believe the trained model, except when the LLM says
+`seguridad`. `tramites` stays out at p = 0.18 until a third test set rules on it.
+
+**Two caveats I'd rather state than bury.** All of this was chosen by looking at the
+training set, so the honest number does not exist yet. And the calibrated confidence is
+worth more than the referee: a third of the inbox arrives with 99.4 % accuracy, which is
+a third that could stop needing me — and that is still unbuilt.
+
 ---
 
 ## Status
@@ -413,7 +486,9 @@ own uncertainty**, and no amount of code fixes that.
 - [x] **Phase 10** — Seven categories became ten, each defined by a checkable question
 - [x] **Phase 11** — One button to fetch and classify, running in the background
 - [x] **Phase 12** — A trained classifier, measured against the LLM
-- [ ] **Next** — a referee between the two models · observability · full Docker ·
+- [x] **A referee between the two models** — cedes by category, not by confidence
+- [ ] **Next** — a third blind test set to measure the referee honestly · auto-approving
+      the high-confidence third of the inbox · observability · full Docker ·
       threat model document
 
 ---
@@ -543,6 +618,9 @@ consequences.
 - [**ADR 007** — Training my own classifier](docs/decisions/007-entrenar-un-clasificador-propio.md)
   — why another prompt was the wrong move, and why 371 existing labels were thrown away
   rather than reused.
+- [**ADR 008** — The referee cedes by category](docs/decisions/008-el-arbitro-cede-por-categoria.md)
+  — the confidence threshold that looked obvious, failed, and was worth writing down
+  anyway.
 
 ---
 
