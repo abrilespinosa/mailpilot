@@ -267,7 +267,7 @@ def nuevo_test(forzar: bool = False) -> None:
 
     if not nuevas:
         print("No hay etiquetas nuevas. Etiqueta más antes de jubilar el test:")
-        print("    python scripts/etiquetar.py --n 100")
+        print("    python scripts/etiquetar.py --limit 100")
         return
 
     assert all(f["a_ciegas"] for f in nuevas), "se coló una etiqueta anclada"
