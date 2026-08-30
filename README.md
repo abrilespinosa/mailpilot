@@ -399,8 +399,7 @@ own uncertainty**, and no amount of code fixes that.
 
 ## Then the numbers fell, and that turned out to be the useful part
 
-A second test set — 199 fresh blind labels, mail more recent than anything in training —
-and both scores collapsed:
+A second test set — 199 fresh blind labels — and both scores collapsed:
 
 | | test gen 1 (91) | test gen 2 (199) | |
 |---|---|---|---|
@@ -417,10 +416,32 @@ A model that does not learn, measuring next to one that does, is the only thing 
 tells "my model got worse" apart from "the exam got harder".
 
 Cross-validation inside the training set says 77.8 %; the test says 60.3 %. Those 17.5
-points are the price of a random split. **The 75.8 % never measured new mail** — its test
-was a random sample from the same period as its training data.
+points are the price of a random split. **The 75.8 % never measured mail from another
+period** — its test was a random sample from the same window as its training data.
 
-Why recent mail is harder: **I don't know.** What is solid is that it is.
+### The direction of that shift is the opposite of what I assumed
+
+Labelling walks backwards in time. Blank proposals are ordered newest-first among the
+unlabelled, so the first batch took the newest mail and every batch since has gone
+further back:
+
+```
+train (559)       2025-05 .. 2026-08
+test gen 2 (199)  2024-12 .. 2025-05
+```
+
+**The test set is older than the training set, not newer.** I had this backwards for a
+while, and it changes what the collapse means: there is no mystery about recent mail
+being hard. The model was trained on one period and examined on a different, earlier one.
+
+It also explains a detail that looked spooky. `empleo` is 6.1 % of training and exactly
+0 % of the test — P(0 of 199) ≈ 4 in a million if it were chance. It isn't chance, and
+it isn't that job mail stopped arriving: it started. I began job-hunting recently, so
+those mails exist only in the recent window, which is entirely training data.
+
+The honest consequence is uncomfortable: **this test measures backwards generalisation,
+which is not the deployment condition.** Nothing here estimates how the model will do on
+tomorrow's mail. Getting that number means holding out mail that has not arrived yet.
 
 ## The referee: it works, but not the way I expected
 

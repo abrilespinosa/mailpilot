@@ -399,8 +399,8 @@ y eso no se arregla con código.
 
 ## Después los números se hundieron, y eso resultó ser lo útil
 
-Un segundo conjunto de prueba —199 etiquetas nuevas a ciegas, correo más reciente que
-todo lo del entrenamiento— y las dos cifras se derrumbaron:
+Un segundo conjunto de prueba —199 etiquetas nuevas a ciegas— y las dos cifras se
+derrumbaron:
 
 | | test gen 1 (91) | test gen 2 (199) | |
 |---|---|---|---|
@@ -417,10 +417,33 @@ Un modelo que no aprende, midiendo junto a uno que sí, es lo único que disting
 modelo ha empeorado» de «el examen es más difícil».
 
 La validación cruzada dentro del entrenamiento dice 77,8 %; el test dice 60,3 %. Esos 17,5
-puntos son el precio de una partición al azar. **El 75,8 % nunca midió correo nuevo**: su
-test era una muestra al azar del mismo periodo que su entrenamiento.
+puntos son el precio de una partición al azar. **El 75,8 % nunca midió correo de otro
+periodo**: su test era una muestra al azar de la misma ventana que su entrenamiento.
 
-Por qué el correo reciente es más difícil: **no lo sé.** Lo sólido es que lo es.
+### La dirección de ese salto es la contraria de la que supuse
+
+El etiquetado camina hacia atrás en el tiempo. Las propuestas en blanco se ordenan de más
+nuevo a más viejo entre lo no etiquetado, así que la primera tanda se llevó el correo más
+reciente y cada tanda posterior ha ido más atrás:
+
+```
+train (559)       2025-05 .. 2026-08
+test gen 2 (199)  2024-12 .. 2025-05
+```
+
+**El conjunto de prueba es más antiguo que el de entrenamiento, no más reciente.** Lo tuve
+del revés durante un tiempo, y cambia lo que significa el derrumbe: no hay ningún misterio
+sobre que el correo reciente sea difícil. El modelo se entrenó en un periodo y se examinó
+en otro, anterior.
+
+También explica un detalle que daba mal rollo. `empleo` es el 6,1 % del entrenamiento y
+exactamente el 0 % del test — P(0 de 199) ≈ 4 en un millón si fuera azar. No es azar, y no
+es que dejaran de llegar ofertas: es que empezaron. Me puse a buscar trabajo hace poco, así
+que esos correos solo existen en la ventana reciente, que es entrenamiento entero.
+
+La consecuencia honesta es incómoda: **este test mide generalización hacia atrás, que no es
+la condición de despliegue.** Nada de esto estima cómo irá con el correo de mañana. Para
+ese número hay que reservar correo que todavía no ha llegado.
 
 ## El árbitro: funciona, pero no como esperaba
 

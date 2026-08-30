@@ -306,29 +306,50 @@ Tener un modelo que no aprende midiendo al lado del que sí vale más que
 cualquier validación cruzada: es lo único que distingue "mi modelo ha
 empeorado" de "el examen es más difícil".
 
-## El test es una rodaja de tiempo, no una muestra
+## El test es una rodaja de tiempo, y va HACIA ATRÁS
 
-`crear_propuestas_en_blanco` ordena por `received_at.desc()`, así que cada tanda
-son los N más recientes sin preparar. Siete de nueve categorías salen con la
-proporción de `train` casi clavada, pero **`empleo` (6,1 % de train) y `social`
-(2,9 %) salen a CERO**. Para `empleo` no es azar: P(0 de 199) ≈ 4 en un millón.
-En el correo reciente ya no llegan ofertas de empleo.
+`crear_propuestas_en_blanco` ordena por `received_at.desc()` entre lo NO
+preparado, así que la primera tanda se llevó el correo más nuevo y cada tanda
+posterior va más atrás. Comprobado por orden de etiquetado, monótono:
 
-**Esto es una virtud, no un defecto**, y conviene no "arreglarlo". Un test
-posterior en el tiempo a `train` es un *holdout temporal*, que es el diseño
-correcto para la pregunta real: ¿cuánto acertará con el correo que llegue
-mañana? La validación cruzada dentro de `train` da 77,8 % ± 1,1 contra 60,3 %
-en el test — **17,5 puntos de hueco** que miden exactamente cuánto engaña una
-partición al azar. El 75,8 % de la generación 1 nunca midió correo nuevo: su
-test era una muestra al azar del mismo periodo que su train.
+```
+train (559)        2025-05-16 .. 2026-08-27   mediana 2026-01
+test gen 2 (199)   2024-12-18 .. 2025-05-16   mediana 2025-02
+sin preparar       2019 .. 2024
+```
 
-Lo que sí falta es que el informe diga de qué categorías no puede hablar. Eso
-ya está: `--nuevo-test` avisa de las categorías con menos de 5 ejemplos o
-ninguno.
+**El test es MÁS ANTIGUO que el train, no más reciente.** Se dio por supuesto
+lo contrario durante dos sesiones y llegó a escribirse en el README público
+(corregido el 2026-08-30). Conviene tenerlo presente porque cambia el
+significado de casi todo lo de esta sección.
 
-## Por qué el correo reciente es más difícil: NO SE SABE
+Siete de nueve categorías salen con la proporción de `train` casi clavada, pero
+**`empleo` (6,1 % de train) y `social` (2,9 %) salen a CERO**. Para `empleo` no
+es azar: P(0 de 199) ≈ 4 en un millón. Y con la dirección correcta se explica
+solo: `empleo` no dejó de llegar, EMPEZÓ a llegar. Esos correos existen solo en
+la ventana reciente, que es `train` entero.
 
-Lo sólido es que lo es. No inventar la explicación en la próxima sesión.
+**Esto NO es un holdout temporal, y por tanto no es la condición de
+despliegue.** Un holdout temporal reserva el correo POSTERIOR para medir qué
+pasará mañana; esto reserva el anterior y mide generalización hacia atrás. Es
+un test legítimo de generalización entre periodos, pero **ningún número que
+salga de aquí estima el rendimiento futuro**.
+
+La validación cruzada dentro de `train` da 77,8 % ± 1,1 contra 60,3 % en el
+test: **17,5 puntos** que miden el salto entre dos periodos, no el precio de
+una partición al azar.
+
+**Restricción que no se puede esquivar**: ya no queda correo reciente que
+etiquetar. Los 758 etiquetados son los 758 más nuevos de la base, y lo que
+queda sin preparar es de 2019 a 2024. Para medir hacia adelante hay que
+reservar correo que aún no ha llegado — es decir, esperar y etiquetar lo nuevo
+según entre.
+
+## Por qué el correo de otro periodo es más difícil: NO SE SABE
+
+Que lo sea está medido. Por qué, no. Lo que SÍ se ha descartado es la
+explicación de "el correo reciente es raro": el correo reciente es el de
+entrenamiento.
 
 ---
 
