@@ -1,4 +1,4 @@
-# Los 183 tests, en cada push a main y en cada Pull Request.
+# Los 204 tests, en cada push a main y en cada Pull Request.
 #
 # POR QUÉ IMPORTA MÁS DE LO NORMAL EN ESTE PROYECTO
 # -------------------------------------------------
@@ -74,7 +74,7 @@ jobs:
       # migraciones, porque es más rápido. El precio está escrito allí: los
       # tests NO comprueban que las migraciones estén al día respecto a
       # models.py. Se puede añadir una columna, olvidar la migración, y tener
-      # los 183 tests en verde con la base de datos real rota.
+      # los 204 tests en verde con la base de datos real rota.
       #
       # `alembic check` compara los modelos contra la base ya migrada y falla
       # si sobra algo. Es exactamente el hueco que dejaba conftest.

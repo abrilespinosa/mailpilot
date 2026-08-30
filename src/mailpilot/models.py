@@ -102,7 +102,7 @@ class GmailActionType(str, enum.Enum):
     """
     Lo ÚNICO que MailPilot puede hacerle a Gmail.
 
-    Dos valores, y la lista es cerrada a propósito. No existe `send` ni
+    Tres valores, y la lista es cerrada a propósito. No existe `send` ni
     `delete`, así que ninguna parte del sistema tiene forma de pedirlos: no es
     que estén prohibidos, es que no se pueden nombrar.
 
