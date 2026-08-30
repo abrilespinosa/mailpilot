@@ -1,9 +1,27 @@
 """
 Mide la calidad del clasificador contra el conjunto etiquetado a mano.
 
-Reclasifica los correos de evaluation/labels.json y compara con la etiqueta
-correcta. NO guarda nada en la tabla classifications: son experimentos, y
-mezclarlos con las clasificaciones reales ensuciaría el histórico.
+QUÉ MIDE ESTO Y QUÉ NO, A DÍA DE HOY
+------------------------------------
+Lee `evaluation/labels.json`, que está congelado en la taxonomía de SIETE
+categorías anterior al ADR 006 (240 correos: dev, test y test2). Sus números
+NO son comparables con nada medido después del 2026-08-17.
+
+Las mediciones vigentes de las diez categorías no salen de aquí:
+
+    modelo entrenado contra qwen3   ->  python -m scripts.comparar
+    partición congelada             ->  entrenamiento/dataset.json
+    etiquetas de uso real           ->  tabla action_proposals
+
+Este script sigue en pie porque `--rescore` es la única forma de releer las
+ejecuciones guardadas en evaluation/runs/, y porque qwen3 es el CONTROL del
+experimento: un modelo que no aprende, midiendo al lado del que sí, es lo
+único que distingue "mi modelo ha empeorado" de "el examen es más difícil".
+Si algún día labels.json se migra a las diez, esto vuelve a servir tal cual.
+
+Reclasifica los correos de labels.json y compara con la etiqueta correcta. NO
+guarda nada en la tabla classifications: son experimentos, y mezclarlos con
+las clasificaciones reales ensuciaría el histórico.
 
 Guarda cada ejecución en evaluation/runs/<nombre>.json para poder comparar
 un prompt o un modelo con otro.
@@ -29,20 +47,19 @@ from sqlalchemy import select  # noqa: F401  (usado por SessionLocal más abajo)
 from mailpilot.classifier import PROMPT_VERSION, OllamaClient, classify_email
 from mailpilot.db import SessionLocal
 from mailpilot.gmail import EmailData
-from mailpilot.models import Email
+from mailpilot.models import Category, Email
 
 RAIZ = Path(__file__).resolve().parents[1] / "evaluation"
 LABELS = RAIZ / "labels.json"
 RUNS = RAIZ / "runs"
-CATEGORIAS = [
-    "personal",
-    "trabajo",
-    "compras",
-    "tramites",
-    "avisos",
-    "promociones",
-    "otros",
-]
+
+# DERIVADA DEL ENUM, no escrita a mano. Estuvo escrita a mano con las siete
+# categorías viejas y se quedó atrás cuando el ADR 006 las subió a diez: como
+# `matriz_de_confusion` filtraba las filas por esta lista, una fila de
+# `seguridad`, `boletines`, `social` o `empleo` desaparecía de la matriz sin
+# decir nada, mientras el porcentaje de acierto sí las contaba. Un informe al
+# que le faltan cuatro categorías y no lo dice es peor que no tener informe.
+CATEGORIAS = [c.value for c in Category]
 
 
 def to_email_data(email: Email) -> EmailData:
@@ -73,13 +90,91 @@ def matriz_de_confusion(resultados: list[dict]) -> None:
     columnas = [c for c in CATEGORIAS if c in predichas] + [
         c for c in sorted(predichas) if c not in CATEGORIAS
     ]
-    filas = [c for c in CATEGORIAS if c in esperadas]
+    # Las desconocidas se añaden al final en vez de descartarse. Antes se
+    # filtraba y punto, así que una etiqueta de una taxonomía que ya no existe
+    # (o de una que todavía no) se caía del informe en silencio.
+    filas = [c for c in CATEGORIAS if c in esperadas] + [
+        c for c in sorted(esperadas) if c not in CATEGORIAS
+    ]
 
     print("\n  correcta \\ predicha")
     print(" " * 15 + "".join(f"{c[:6]:>8}" for c in columnas))
     for correcta in filas:
         celdas = "".join(f"{conteo[correcta][p] or '·':>8}" for p in columnas)
         print(f"  {correcta:13}{celdas}")
+
+
+def por_categoria(resultados: list[dict]) -> None:
+    """
+    Precisión Y recall por categoría. Hasta ahora solo se veía el recall.
+
+    Son dos preguntas distintas y la diferencia importa más de lo que parece:
+
+        recall     de los que SON `otros`, ¿cuántos pilló?
+        precisión  de los que LLAMÓ `otros`, ¿cuántos acertó?
+
+    Un modelo que contesta `otros` a todo tiene recall perfecto en `otros` y
+    precisión pésima. La matriz de confusión responde la primera leyendo por
+    filas, pero la segunda hay que sacarla por columnas y nadie lo hace de
+    cabeza. Este proyecto ya se topó con las dos versiones del mismo número
+    dando lecturas opuestas de `otros` (ver el análisis de las 72 correcciones
+    reales): la Fase 6 medía recall, las correcciones medían precisión, y
+    parecían contradecirse sin hacerlo.
+
+    `son` a cero significa que el conjunto no dice NADA de esa categoría, que
+    es distinto de que el modelo lo haga mal.
+    """
+    son = Counter(r["expected"] for r in resultados)
+    dijo = Counter(r["predicted"] for r in resultados)
+    acerto = Counter(r["expected"] for r in resultados if r["correct"])
+
+    # Primero las del enum, en su orden; después cualquier categoría ajena que
+    # haya aparecido (una taxonomía vieja en el conjunto, un "ERROR" del
+    # modelo). Ninguna se descarta: si sale en el acierto global, sale aquí.
+    aparecidas = set(son) | set(dijo)
+    vistas = [c for c in CATEGORIAS if c in aparecidas]
+    vistas += sorted(aparecidas - set(CATEGORIAS))
+
+    def pct(numerador: int, denominador: int) -> str:
+        return f"{numerador / denominador:.1%}" if denominador else "·"
+
+    print(f"\n  {'categoría':13} {'son':>4} {'recall':>9}   {'dijo':>4} {'precisión':>9}")
+    for c in vistas:
+        print(
+            f"  {c:13} {son[c]:>4} {pct(acerto[c], son[c]):>9}   "
+            f"{dijo[c]:>4} {pct(acerto[c], dijo[c]):>9}"
+        )
+
+    flojas = [c for c in vistas if 0 < son[c] < 5]
+    if flojas:
+        print(f"\n  (con menos de 5 ejemplos no se puede afirmar nada de: "
+              f"{', '.join(flojas)})")
+
+
+def avisar_si_taxonomia_vieja(etiquetas: list[dict]) -> None:
+    """
+    Grita si el conjunto está escrito en una taxonomía que ya no existe.
+
+    `evaluation/labels.json` se construyó con las SIETE categorías de antes del
+    ADR 006 y nunca se migró. Sus números no son comparables con nada medido
+    después: `trabajo` se llamó `empleo` y se estrechó, y `seguridad`,
+    `boletines` y `social` salieron de partir `avisos` y `otros`.
+
+    Sin este aviso el script imprime un porcentaje perfectamente creíble sobre
+    un examen de otra asignatura, que es la peor forma de equivocarse.
+    """
+    actuales = {c.value for c in Category}
+    fantasmas = sorted({e["expected"] for e in etiquetas} - actuales)
+    if not fantasmas:
+        return
+
+    print("  " + "!" * 60)
+    print(f"  AVISO: este conjunto usa categorías que ya no existen: "
+          f"{', '.join(fantasmas)}.")
+    print("  Es la taxonomía de SIETE, anterior al ADR 006. El acierto que salga")
+    print("  NO es comparable con ninguna medición posterior al 2026-08-17.")
+    print("  Para medir con las diez de hoy: python -m scripts.comparar")
+    print("  " + "!" * 60)
 
 
 def informe(resultados: list[dict], fallos_validacion: int = 0) -> float:
@@ -111,6 +206,7 @@ def informe(resultados: list[dict], fallos_validacion: int = 0) -> float:
         print("  (cerca de 0 = la confianza no sirve como umbral)")
 
     matriz_de_confusion(resultados)
+    por_categoria(resultados)
 
     fallos = [r for r in resultados if not r["correct"]]
     if fallos:
@@ -178,7 +274,9 @@ def rescore(nombre: str) -> None:
     origen = RUNS / f"{nombre}.json"
     datos = json.loads(origen.read_text())
 
-    esperado_por_id = {e["email_id"]: e["expected"] for e in cargar_etiquetas()}
+    etiquetas = cargar_etiquetas()
+    avisar_si_taxonomia_vieja(etiquetas)
+    esperado_por_id = {e["email_id"]: e["expected"] for e in etiquetas}
 
     cambiados = 0
     for r in datos["results"]:
@@ -203,6 +301,9 @@ def ejecutar(nombre: str, limite: int | None, split: str | None, modelo: str | N
     etiquetas = cargar_etiquetas(split)
     if limite:
         etiquetas = etiquetas[:limite]
+
+    # Antes de gastar quince minutos de inferencia, no después.
+    avisar_si_taxonomia_vieja(etiquetas)
 
     client = OllamaClient(model=modelo) if modelo else OllamaClient()
     print(f"Ejecución: {nombre}")

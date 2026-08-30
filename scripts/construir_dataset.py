@@ -25,13 +25,31 @@ empuja a darle la razón, así que una etiqueta anclada sirve para afinar pero n
 para entrenar ni para medir: enseñaría al modelo nuevo a copiar los sesgos del
 viejo, sin forma de saber cuánto.
 
+CUANDO EL `test` SE GASTA
+-------------------------
+Un `test` se gasta al mirarlo: en cuanto conoces sus fallos concretos, cualquier
+ajuste que hagas está informado por él y el número deja de ser honesto. No se
+"desgasta" de a poco, se gasta entero y de golpe.
+
+`--nuevo-test` lo jubila y pone en su lugar las etiquetas nuevas. El test viejo
+NO se tira: pasa a `train`, porque está quemado para medir pero sigue siendo
+material válido para aprender.
+
+Ojo con lo que eso significa: el número que salga del test nuevo **no es
+comparable** con el del viejo. Es otro examen, con otros correos y otra mezcla
+de categorías. Comparar los dos es justo el error que costó 18,7 puntos
+imaginarios en la Fase 6.
+
 Uso:
-    python scripts/construir_dataset.py            # crea el conjunto
-    python scripts/construir_dataset.py --force    # lo regenera desde cero
+    python scripts/construir_dataset.py               # crea el conjunto
+    python scripts/construir_dataset.py --ampliar     # etiquetas nuevas -> train
+    python scripts/construir_dataset.py --nuevo-test  # jubila el test, pone uno nuevo
+    python scripts/construir_dataset.py --force       # lo regenera desde cero
 """
 
 import argparse
 import json
+import math
 import random
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -196,6 +214,110 @@ def ampliar_solo_train() -> None:
     resumen("train (ampliado)", datos["train"])
 
 
+# Cuántos correos hacen falta para que el test diga algo. Por debajo de esto el
+# margen de error se come cualquier diferencia que quieras detectar: con 50, un
+# 75 % viene con +-12 puntos. Se puede saltar con --force, a sabiendas.
+TEST_MINIMO = 50
+
+
+def margen_de_error(n: int, acierto: float = 0.75) -> float:
+    """
+    Cuánto vale el número que va a salir, en puntos porcentuales (95 %).
+
+    Se imprime porque un acierto sin su margen invita a leer diferencias que no
+    existen. Con 91 correos, un 75,8 % y un 82 % son el mismo resultado.
+    """
+    if n <= 0:
+        return 0.0
+    return 1.96 * math.sqrt(acierto * (1 - acierto) / n) * 100
+
+
+def nuevo_test(forzar: bool = False) -> None:
+    """
+    Jubila el `test` actual y lo sustituye por las etiquetas nuevas.
+
+    QUÉ PASA CON EL TEST VIEJO
+    --------------------------
+    Se va a `train`. Mirarlo lo inutiliza para MEDIR, no para APRENDER: las
+    etiquetas siguen siendo correctas y humanas. Tirarlas sería desperdiciar
+    trabajo irrepetible.
+
+    QUÉ NO SE PUEDE HACER DESPUÉS
+    -----------------------------
+    Comparar el acierto nuevo con el viejo como si fuera la misma medida. Son
+    exámenes distintos: distintos correos y distinta mezcla de categorías. Lo
+    único que se puede afirmar con el test nuevo es cómo van los modelos
+    ENTRE SÍ, medidos hoy sobre los mismos correos.
+
+    Si ya pasaste `--ampliar`, esas etiquetas están en `train` y no volverán:
+    para reservarlas hay que llamar a esto ANTES de ampliar.
+    """
+    if not DESTINO.exists():
+        raise SystemExit("No hay conjunto. Ejecuta el script sin argumentos.")
+
+    datos = json.loads(DESTINO.read_text(encoding="utf-8"))
+    ya_estan = {f["email_id"] for f in datos["train"]} | {
+        f["email_id"] for f in datos["test"]
+    }
+
+    with SessionLocal() as session:
+        todas = extraer(session)
+
+    nuevas = [f for f in todas if f["email_id"] not in ya_estan]
+
+    if not nuevas:
+        print("No hay etiquetas nuevas. Etiqueta más antes de jubilar el test:")
+        print("    python scripts/etiquetar.py --n 100")
+        return
+
+    assert all(f["a_ciegas"] for f in nuevas), "se coló una etiqueta anclada"
+
+    if len(nuevas) < TEST_MINIMO and not forzar:
+        print(f"Solo hay {len(nuevas)} etiquetas nuevas, y el mínimo son {TEST_MINIMO}.")
+        print(f"Un test así mediría con +-{margen_de_error(len(nuevas)):.0f} puntos de")
+        print("margen, que es tanto como no medir. Etiqueta más, o --force si sabes")
+        print("lo que haces.")
+        return
+
+    generacion = datos.get("generacion_test", 1) + 1
+    test_viejo = datos["test"]
+
+    azar = random.Random(SEMILLA + generacion)
+    train = datos["train"] + test_viejo
+    azar.shuffle(train)
+
+    datos["train"] = train
+    datos["test"] = nuevas
+    datos["total"] = len(train) + len(nuevas)
+    datos["generacion_test"] = generacion
+    datos["tests_retirados"] = datos.get("tests_retirados", []) + [
+        {"generacion": generacion - 1, "n": len(test_viejo), "destino": "train"}
+    ]
+
+    DESTINO.write_text(
+        json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    print(f"Test generación {generacion - 1} JUBILADO ({len(test_viejo)} correos) -> train")
+    print(f"Test generación {generacion} EN PIE  ({len(nuevas)} correos, nunca vistos)")
+    print(f"train: {len(train)}")
+    print(f"\n  Margen de error del test nuevo: +-{margen_de_error(len(nuevas)):.1f} puntos.")
+    print("  Dos resultados que disten menos que eso son el mismo resultado.")
+
+    resumen("test nuevo", nuevas)
+
+    flojas = [c for c, n in Counter(f["categoria"] for f in nuevas).items() if n < 5]
+    faltan = {f["categoria"] for f in train} - {f["categoria"] for f in nuevas}
+    if flojas:
+        print(f"\n  AVISO: con menos de 5 ejemplos no se puede afirmar nada de: "
+              f"{', '.join(sorted(flojas))}")
+    if faltan:
+        print(f"  AVISO: sin NINGÚN ejemplo en el test: {', '.join(sorted(faltan))}")
+
+    print("\n  El número que salga NO es comparable con el del test anterior.")
+    print("  Otro examen. Solo sirve para comparar modelos ENTRE SÍ, hoy.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -204,11 +326,26 @@ def main() -> None:
         help="añade las etiquetas nuevas SOLO a train, dejando el test intacto",
     )
     parser.add_argument(
+        "--nuevo-test",
+        action="store_true",
+        help="jubila el test actual (pasa a train) y lo sustituye por las etiquetas nuevas",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="regenera la partición aunque ya exista (INVALIDA las medidas anteriores)",
     )
     args = parser.parse_args()
+
+    if args.ampliar and args.nuevo_test:
+        raise SystemExit(
+            "--ampliar y --nuevo-test se contradicen: uno manda las etiquetas nuevas\n"
+            "a train y el otro las reserva para medir. Elige."
+        )
+
+    if args.nuevo_test:
+        nuevo_test(forzar=args.force)
+        return
 
     if args.ampliar:
         ampliar_solo_train()
